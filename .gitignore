@@ -1,0 +1,4 @@
+xdg-shell.h
+xdg-shell.c
+*.o
+soilleir
