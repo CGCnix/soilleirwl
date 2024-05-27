@@ -2,6 +2,8 @@
 #include "./xdg-shell.h"
 
 /*wayland*/
+#include <asm-generic/errno-base.h>
+#include <wayland-server-core.h>
 #include <wayland-server.h>
 
 /*Xkbcommon*/
@@ -14,8 +16,11 @@
 /*Linux EVDev*/
 #include <linux/input.h>
 #include <linux/input-event-codes.h>
+#include <linux/vt.h>
+#include <linux/kd.h>
 
 /*Std c library functions*/
+#include <errno.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -23,6 +28,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+
+#define TTYNAMELEN 256
 
 typedef struct swl_buffer {
 	uint32_t handle, fb_id;
@@ -98,6 +105,93 @@ struct swl_xdg_toplevel {
 	
 	struct wl_list link;
 };
+
+bool test_is_console(int fd) {
+	char kb_type = 0;
+
+	return ioctl(fd, KDGKBTYPE, &kb_type) == 0;
+}
+
+int get_tty_name(char *path, uint32_t length, uint32_t vt) {
+	return snprintf(path, length, "/dev/tty%d", vt);
+}
+
+int setup_vt() {
+	/*configure the VT to disallow TTY swapping*/
+	int tty0fd, curfd;
+	struct vt_mode vt;
+	struct vt_stat vtstat;
+	char tty_path[TTYNAMELEN];
+	memset(tty_path, 0, TTYNAMELEN);
+
+	/*Try to open TTY0 to get the current TTY*/
+	tty0fd = open("/dev/tty0", O_RDONLY);
+	if(tty0fd < 0 && errno == EACCES) {
+		errno = 0; /*Reset this*/
+		tty0fd = open("/dev/tty0", O_WRONLY);
+	}
+	
+	if(tty0fd < 0 || test_is_console(tty0fd) == false) {
+		if(tty0fd >= 0) close(tty0fd);
+		printf("Failed to open tty0 or it's not a console %s\n", strerror(errno));
+		return -1;
+	}
+
+	if(ioctl(tty0fd, VT_GETSTATE, &vtstat) != 0) {
+		close(tty0fd);
+		printf("Failed to get VT state from TTY0 %s\n", strerror(errno));
+		return -1;
+	}
+	
+	close(tty0fd);
+
+	get_tty_name(tty_path, TTYNAMELEN, vtstat.v_active);
+	curfd = open(tty_path, O_RDONLY);
+	if(curfd < 0 && errno == EACCES) {
+		errno = 0;
+		curfd = open(tty_path, O_WRONLY);
+	}
+
+	if(curfd < 0) {
+		printf("failed to open %s: %s\n", tty_path, strerror(errno));
+		return -1;
+	}
+
+	if(ioctl(curfd, VT_GETMODE, &vt) != 0) {
+		close(curfd);
+		printf("Failed to get VT mode from %s %s\n", tty_path, strerror(errno));
+		return -1;
+	}
+
+	vt.mode = VT_PROCESS;
+
+	if(ioctl(curfd, VT_SETMODE, &vt) != 0) {
+		close(curfd);
+		printf("Failed to get VT mode from %s %s\n", tty_path, strerror(errno));
+		return -1;
+	}
+
+	return curfd;	
+}
+
+int reset_vt(int vtfd) {
+	struct vt_mode vt;
+
+	if(ioctl(vtfd, VT_GETMODE, &vt) != 0) {
+		close(vtfd);
+		printf("Failed to get VT mode from %s\n", strerror(errno));
+		return -1;
+	}
+
+	vt.mode = VT_AUTO;
+	if(ioctl(vtfd, VT_SETMODE, &vt) != 0) {
+		close(vtfd);
+		printf("Failed to get VT mode from %s\n", strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
 
 drmModeConnector *drm_get_first_connector(int fd, drmModeRes *res) {
 	uint32_t count;
@@ -261,7 +355,6 @@ swl_backend_t *backend_create(struct wl_display *display) {
 	if(getenv("SWL_DRM_OVERRIDE")) {
 		drm_card = getenv("SWL_DRM_OVERRIDE");
 	}
-
 	if(!keyboard) {
 		return NULL;
 	}
@@ -697,9 +790,15 @@ static void wl_seat_bind(struct wl_client *client, void *data,
 }
 
 int main(int argc, char **argv) {
+	int fd;
 	struct wl_display *display = wl_display_create();
 	wl_display_add_socket_auto(display);
 	swl_backend_t *backend = backend_create(display);
+	
+	fd = setup_vt();
+	if(fd <= 0) {
+		return 1;
+	}
 
 	drmModePageFlip(backend->drmfd, backend->saved_crtc->crtc_id, 
 			backend->buffers[backend->front_bo].fb_id, DRM_MODE_PAGE_FLIP_EVENT, backend);
@@ -710,6 +809,7 @@ int main(int argc, char **argv) {
 	
 	wl_display_run(display);
 
+	reset_vt(fd);
 	backend_destroy(backend);
 
 	return 0;
