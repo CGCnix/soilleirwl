@@ -1,2 +1,4 @@
 -I
+./includes
+-I
 /usr/include/libdrm

@@ -1,9 +1,9 @@
 include config.mk
 
 TARGET=soilleir
-COBJS=src/backend.o src/xdg-shell.o
-CLIBSFLAGS=`pkg-config --cflags libdrm xkbcommon wayland-server`
-CLIBS=`pkg-config --libs libdrm xkbcommon wayland-server`
+COBJS=src/input/libinput.o src/hotplug/udev.o src/sessions/seatd.o src/xdg-shell.o tests/server.o src/logger.o
+CLIBSFLAGS=`pkg-config --cflags libdrm xkbcommon wayland-server libseat libudev libinput`
+CLIBS=`pkg-config --libs libdrm xkbcommon wayland-server libseat libudev libinput`
 
 
 all: src/xdg-shell.h $(TARGET)
@@ -17,7 +17,7 @@ src/xdg-shell.c:
 .c.o:
 	$(CC) -c $(CLIBSFLAGS) $(CFLAGS) -o $@ $<
 
-$(TARGET): $(COBJS)
+$(TARGET): $(COBJS) tests/server.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(COBJS) $(CLIBS)
 
 clean:
