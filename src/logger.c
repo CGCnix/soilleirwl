@@ -27,6 +27,7 @@ int swl_log(swl_log_levels_t level, uint32_t line, const char *file, const char 
 		va_start(args, fmt);
 		ret = vfprintf(glog_file, fmt, args);
 		va_end(args);
+		fflush(glog_file);
 	}
 	return ret;
 }
@@ -39,6 +40,7 @@ int swl_log_printf(swl_log_levels_t level, const char *fmt, ...) {
 		va_start(args, fmt);
 		ret = vfprintf(glog_file, fmt, args);
 		va_end(args);
+		fflush(glog_file);
 	}
 	return ret;
 }
