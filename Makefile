@@ -1,3 +1,5 @@
+.POSIX:
+.SUFFIXES: .c .o
 include config.mk
 
 TARGET=soilleir
