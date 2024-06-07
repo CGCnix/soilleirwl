@@ -6,7 +6,7 @@ CLIBSFLAGS=`pkg-config --cflags libdrm xkbcommon wayland-server libseat libudev 
 CLIBS=`pkg-config --libs libdrm xkbcommon wayland-server libseat libudev libinput libdrm`
 
 
-all: src/xdg-shell-server.h $(TARGET) screenshot
+all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot
 
 
 tests/swl-screenshot-client.h: ./protocols/swl-screenshot-unstable-v1.xml
