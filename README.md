@@ -5,9 +5,17 @@ To build please install all the needed deps and then run `make` to build the cod
 
 ## Running:
 ### This software is in early development!
-This software is in early development and not really supposed to be run currently. However it technically can be run by building the `src/backend.c` file. And setting the `SWL_DRM_OVERRIDE` and the `SWL_KEYBOARD` environment variables to be the file drm card and keyboard event file you wish to use.
+This software is in early development and not really supposed to be run currently. However it technically can be run by building using `make` file. And setting the `SWL_DRM_DEVICE` environment variable to be the file drm card if it's not set it defaults `/dev/dri/card0`.
 
-However you will be unable to spawn a client without either blindly typing into the TTY with needed wayland display variables set or sleeping a program to start on the server start. The TTY is left in text mode purely so if some goes wrong you should be able to hit `CTRL+C` and that will kill the app. You can then swap to another TTY which *should* restore your graphics output.
+Keybinds:
+All keybindings are combined with the modifiers `CTRL+ALT`
+
+- Enter/Return (Spawn a havoc terminal)
+- F[1-12] (Swap to TTY #)
+- Escape (Exit)
+- Tab (Swap active client)
+- Arrow keys move client 10px that direction (NOTE: this code assumes 1920x1080 size)
+
 
 ### Problems in the current build
 - TTY is left in text mode

@@ -1,4 +1,15 @@
 xdg-shell.h
 xdg-shell.c
+xdg-shell-server.c
+xdg-shell-server.h
 *.o
 soilleir
+screenshot
+protocol_dump
+output
+image.png
+log
+swl-screenshot-client.c
+swl-screenshot-client.h
+swl-screenshot-server.h
+swl-screenshot-server.c

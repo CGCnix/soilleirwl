@@ -65,6 +65,7 @@ drmModeCrtc *swl_drm_get_conn_crtc(int fd, drmModeConnector *conn, drmModeRes *r
 
 	if(encoder || encoder->crtc_id) {
 		crtc = drmModeGetCrtc(fd, encoder->crtc_id);
+		drmModeFreeEncoder(encoder);
 	}
 
 	return crtc;
@@ -115,6 +116,56 @@ int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height)
 	return ret;
 }
 
+
+int swl_drm_destroy_fb(int fd, swl_buffer_t *bo) {
+	int ret;
+
+	if(!bo) {
+		swl_error("Invalid input create fb\n");
+		return -1;
+	}
+
+	munmap(bo->data, bo->size);
+
+	drmModeRmFB(fd, bo->fb_id);
+
+	drmModeDestroyDumbBuffer(fd, bo->handle);
+
+	return 0;
+}
+
+
+static void render_surface_texture(swl_output_t *output, swl_output_texture_t *texture,
+		int32_t xoff, int32_t yoff) {
+	swl_debug("%p %p\n", texture, output);
+	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
+	uint32_t *dst = (uint32_t *)drm_output->buffer[drm_output->front_buffer].data;
+	uint32_t width = drm_output->buffer[drm_output->front_buffer].width;
+
+	if(texture->data) {
+		for(uint32_t y = 0; y < texture->height; y++) {
+			for(uint32_t x = 0; x < texture->width; x++) {
+				dst[(y + yoff) * width + x + xoff] = ((uint32_t*)texture->data)[y * texture->width + x];
+			}
+		}
+	}
+}
+
+void swl_output_copy(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t width, int32_t height, int32_t xoff, int32_t yoff) {
+	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
+	uint32_t *src = (uint32_t *)drm_output->buffer[drm_output->front_buffer].data;
+	uint32_t src_width = drm_output->buffer[drm_output->front_buffer].width;
+	uint32_t *dst = wl_shm_buffer_get_data(buffer);
+	swl_debug("src and dest %p %p\n", src, dst);
+	if(src) {
+		for(uint32_t y = 0; y < height; y++) {
+			for(uint32_t x = 0; x < width; x++) {
+				dst[y * width + x] = src[(y + yoff) * width + x + xoff];
+			}
+		}
+	}
+}
+
 void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *output) {
 	output->mode.refresh = connector->modes->vrefresh;
 	output->mode.width = connector->modes->hdisplay;
@@ -131,6 +182,10 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	output->name = "SWL-Monitor";
 	output->description = "Uhhh output";
 
+	output->draw_texture = render_surface_texture; 
+	output->copy = swl_output_copy;
+	wl_signal_init(&output->frame);
+	wl_signal_init(&output->destroy);
 }
 
 swl_drm_output_t *swl_drm_output_create(int fd, drmModeRes *res, drmModeConnector *conn) {
@@ -144,6 +199,20 @@ swl_drm_output_t *swl_drm_output_create(int fd, drmModeRes *res, drmModeConnecto
 	return output;
 }
 
+void swl_drm_outputs_destroy(int fd, struct wl_list *list) {
+	swl_drm_output_t *output, *tmp;
+	wl_list_for_each_safe(output, tmp, list, link) {
+		wl_signal_emit(&output->common.destroy, &output);
+
+		swl_drm_destroy_fb(fd, &output->buffer[0]);
+		swl_drm_destroy_fb(fd, &output->buffer[1]);
+
+		drmModeFreeCrtc(output->original_crtc);
+		drmModeFreeConnector(output->connector);
+		wl_list_remove(&output->link);
+		free(output);
+	}
+}
 
 int drm_create_outputs(int fd, drmModeRes *res, struct wl_list *list) {
 	uint32_t count;
@@ -165,23 +234,6 @@ int drm_create_outputs(int fd, drmModeRes *res, struct wl_list *list) {
 	
 	return 0;
 }
-
-
-static void render_surface_texture(swl_output_t *output, swl_output_texture_t *texture,
-		int32_t xoff, int32_t yoff) {
-	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
-	uint32_t *dst = (uint32_t *)drm_output->buffer[drm_output->front_buffer].data;
-	uint32_t width = drm_output->buffer[drm_output->front_buffer].width;
-
-	if(texture->data) {
-		for(uint32_t y = 0; y < texture->height; y++) {
-			for(uint32_t x = 0; x < texture->width; x++) {
-				dst[(y + yoff) * width + x + xoff] = ((uint32_t*)texture->data)[y * texture->width + x];
-			}
-		}
-	}
-}
-
 
 static void swl_output_release(struct wl_client *client, struct wl_resource *resource) {
 
@@ -220,6 +272,9 @@ static void modeset_page_flip_event(int fd, unsigned int frame,
 
 	output->pending = false;
 	if (!output->shutdown) {
+		memset(output->buffer[output->front_buffer].data, 0xaa, output->buffer[output->front_buffer].size);
+
+		wl_signal_emit(&output->common.frame, output);
 
 		drmModePageFlip(fd, output->original_crtc->crtc_id, 
 				output->buffer[output->front_buffer].fb_id, 
@@ -273,7 +328,7 @@ int swl_drm_backend_start(swl_display_backend_t *display) {
 		drmModePageFlip(drm->fd, output->original_crtc->crtc_id, 
 			output->buffer[output->front_buffer].fb_id, DRM_MODE_PAGE_FLIP_EVENT, output);
 		output->pending = true;
-		output->common.draw_texture =	render_surface_texture;
+		wl_signal_emit(&drm->common.new_output, output);
 	}
 	
 	return 0;	
@@ -331,7 +386,7 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 	wl_list_init(&drm->outputs);
 
 	drm_create_outputs(drm->fd, res, &drm->outputs);
-
+	drmModeFreeResources(res);
 	drm->display = display;
 	wl_signal_init(&drm->common.new_output);
 
@@ -345,4 +400,15 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 			swl_drm_readable, drm);
 
 	return (swl_display_backend_t*)drm;
+}
+
+void swl_drm_backend_destroy(swl_display_backend_t *display, swl_session_backend_t *session) {
+	swl_drm_backend_t *drm = (void *)display;
+	
+	wl_event_source_remove(drm->readable);
+
+	swl_drm_outputs_destroy(drm->fd, &drm->outputs);
+	session->close_dev(session, drm->dev);
+	close(drm->fd);
+	free(drm);
 }

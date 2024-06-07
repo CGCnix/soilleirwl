@@ -71,16 +71,25 @@ int swl_udev_backend_start(void *data) {
 
 		udev_device_unref(device);
 	}
+
+	udev_enumerate_unref(inputs);
 	return 0;
 }
 
+void swl_udev_backend_destroy(swl_dev_man_backend_t *dev_man) {
+	swl_udev_backend_t *udev;
+
+	udev = (swl_udev_backend_t*)dev_man;
+	udev_unref(udev->udev);
+	free(udev);
+}
 
 swl_dev_man_backend_t *swl_udev_backend_create(struct wl_display *display) {
 	swl_udev_backend_t *udev = calloc(1, sizeof(swl_udev_backend_t));
 
 	wl_signal_init(&udev->common.new_input);
 	udev->udev = udev_new();
-
+	
 
 	return (swl_dev_man_backend_t*)udev;
 }

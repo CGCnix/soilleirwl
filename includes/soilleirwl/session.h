@@ -18,4 +18,6 @@ struct swl_session_backend {
 	struct wl_signal disable;
 };
 
+
+void swl_seatd_backend_destroy(swl_session_backend_t *session);
 swl_session_backend_t *swl_seatd_backend_create(struct wl_display *display);	

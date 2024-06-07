@@ -52,6 +52,9 @@ int main(int argc, char *argv[]) {
 		printf("Device: %s %p\n", libinput_device_get_name(device), device);
 		if(type == LIBINPUT_EVENT_DEVICE_ADDED) {
 			libinput_device_set_user_data(device, "Test data\n");
+			if(libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
+				printf("\thas keyboard\n");
+			}
 		} else {
 			printf("%s\n", (char *)libinput_device_get_user_data(device));
 		}

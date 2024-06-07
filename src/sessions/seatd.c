@@ -59,6 +59,15 @@ static int swl_seatd_readable(int fd, uint32_t mask, void *data) {
 	return 0;
 }
 
+void swl_seatd_backend_destroy(swl_session_backend_t *session) {
+	swl_seatd_backend_t *seatd;
+
+	seatd = (swl_seatd_backend_t*)session;
+
+	wl_event_source_remove(seatd->readable);
+	libseat_close_seat(seatd->libseat);
+	free(seatd);
+}
 
 swl_session_backend_t *swl_seatd_backend_create(struct wl_display *display) {
 	swl_seatd_backend_t *seatd;

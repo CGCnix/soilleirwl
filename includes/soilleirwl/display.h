@@ -12,4 +12,4 @@ typedef struct swl_display_backend {
 int swl_drm_backend_stop(swl_display_backend_t *display);
 int swl_drm_backend_start(swl_display_backend_t *display);
 swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_session_backend_t *session);
-	
+void swl_drm_backend_destroy(swl_display_backend_t *display, swl_session_backend_t *session);

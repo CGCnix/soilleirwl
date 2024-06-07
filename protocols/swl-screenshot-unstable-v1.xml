@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="swl_screenshot_unstable_v1">
+  <copyright>
+    Copyright © 2024      Caitlyn Stewart
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+	</copyright>
+
+	<description summary="basic screenshot protocol for swl">
+		copy the front buffer of wl_output structure to a wl_shm_buffer
+
+		Warning! The protocol described in this file is experimental and
+    backward incompatible changes may be made. Backward compatible changes
+    may be added together with the corresponding interface version bump.
+    Backward incompatible changes are done by bumping the version number in
+    the protocol and interface names and resetting the interface version.
+    Once the protocol is to be declared stable, the 'z' prefix and the
+    version number in the protocol and interface names are removed and the
+    interface version number is reset.
+  </description>
+
+	<interface name="zswl_screenshot_manager" version="1">
+		<description summary="screenshot manager resource">
+			This is a screenshot manager interface intended to provide a bridge between
+			wl_output and wl_shm_buffer allowing for an output to copied into wl_shm_buffer
+		</description>
+
+		<request name="copy_output">
+			<description summary="actually copy the buffer">
+				request to copy the output of wl_output to provided shm buffer
+			</description>
+			<arg name="output" type="object" interface="wl_output" summary="output to copy"/>
+			<arg name="buffer" type="object" interface="wl_buffer" summary="buffer to paste"/>
+			<arg name="width" type="int" summary="width to copy"/>
+			<arg name="height" type="int" summary="height to copy"/>
+			<arg name="x" type="int" summary="x to start from"/>
+			<arg name="y" type="int" summary="y to start from"/>
+    </request>
+
+    <enum name="error">
+			<entry name="invalid_geometry" value="0" summary="height/width or x/y invalid"/>
+			<entry name="invalid_source" value="1" summary="invalid output"/>
+			<entry name="buffer_to_small" value="2" summary="buffer to small"/>
+    </enum>
+	</interface>
+</protocol>

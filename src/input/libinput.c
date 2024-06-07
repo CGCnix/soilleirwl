@@ -43,8 +43,6 @@ void swl_libinput_device_added_listener(struct wl_listener *listener, void *data
 void swl_libinput_deactivate(struct wl_listener *listener, void *data) {
 	swl_libinput_backend_t *libinput = wl_container_of(listener, libinput, deactivate);
 	
-	swl_info("%p %p\n", libinput, libinput->ctx);
-
 	libinput_suspend(libinput->ctx);
 }
 
@@ -110,22 +108,31 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 
 	while((event = libinput_get_event(libinput->ctx))) {
 		
+
+
 		if(libinput_event_get_type(event) == LIBINPUT_EVENT_KEYBOARD_KEY) {
 			keyboard = libinput_event_get_keyboard_event(event);
-			if(libinput_event_keyboard_get_key(keyboard) == 0x10 &&
-					libinput_event_keyboard_get_key_state(keyboard) == LIBINPUT_KEY_STATE_PRESSED) {
-				wl_display_terminate(libinput->display);
-			}
-			if(libinput_event_keyboard_get_key(keyboard) == 0x02 &&
-				libinput_event_keyboard_get_key_state(keyboard) == LIBINPUT_KEY_STATE_PRESSED) {
-				libinput->session->switch_vt(libinput->session, 4);	
-			}		
+			swl_key_event_t key;
+			key.key = libinput_event_keyboard_get_key(keyboard);
+			key.state = libinput_event_keyboard_get_key_state(keyboard);
+			wl_signal_emit(&libinput->common.key, &key);
 		}
 
 		libinput_event_destroy(event);
 	}
 
 	return 0;
+}
+
+void swl_libinput_backend_destroy(swl_input_backend_t *input) {
+	swl_libinput_backend_t *libinput;
+
+	libinput = (swl_libinput_backend_t*)input;
+	
+	wl_event_source_remove(libinput->readable);
+	libinput_suspend(libinput->ctx);
+	libinput_unref(libinput->ctx);
+	free(libinput);
 }
 
 swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
@@ -138,7 +145,7 @@ swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
 	if(!display && !loop) {
 		return NULL;
 	}
-
+	
 	libinput = calloc(1, sizeof(swl_libinput_backend_t));
 	libinput->ctx = libinput_path_create_context(&swl_libinput_interface, libinput);
 	libinput->readable = wl_event_loop_add_fd(loop, libinput_get_fd(libinput->ctx), WL_EVENT_READABLE, swl_libinput_readable, libinput);	
@@ -148,6 +155,7 @@ swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
 	libinput->display = display;
 
 	wl_signal_init(&libinput->common.new_input);
+	wl_signal_init(&libinput->common.key);
 	wl_list_init(&libinput->devices);
 
 	libinput->activate.notify = swl_libinput_activate;
@@ -157,6 +165,6 @@ swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
 	wl_signal_add(&session->activate, &libinput->activate);
 	wl_signal_add(&session->disable, &libinput->deactivate);
 	wl_signal_add(&dev_man->new_input, &libinput->device_added);
-
+	
 	return (swl_input_backend_t*)libinput;
 }
