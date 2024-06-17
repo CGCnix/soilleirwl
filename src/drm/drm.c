@@ -4,7 +4,10 @@
 
 #include <soilleirwl/interfaces/swl_output.h>
 
+#include <soilleirwl/private/drm_output.h>
+
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
@@ -15,36 +18,16 @@
 
 #include <sys/mman.h>
 
+#include <gbm.h>
+
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 
-typedef struct swl_buffer {
-	uint32_t handle, fb_id;
-	uint32_t format, height, width, pitch;
-	size_t size, offset;
-
-	uint8_t *data;
-} swl_buffer_t;
-
-typedef struct swl_drm_output {
-	swl_output_t common;
-
-	drmModeCrtcPtr original_crtc;
-	drmModeConnectorPtr connector;
-
-	swl_buffer_t buffer[2];
-	int front_buffer;
-
-	int pending;
-	int shutdown;
-
-	struct wl_list link;
-} swl_drm_output_t;
-
 typedef struct swl_drm_backend {
 	swl_display_backend_t common;
 	int fd, dev;
+	struct gbm_device *gbm; 
 
 	struct wl_list outputs;
 
@@ -71,8 +54,25 @@ drmModeCrtc *swl_drm_get_conn_crtc(int fd, drmModeConnector *conn, drmModeRes *r
 	return crtc;
 }
 
-int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height) {
+int swl_drm_create_fb(struct gbm_device *dev, swl_buffer_t *bo, uint32_t width, uint32_t height) {
 	int ret;
+
+
+	bo->gbm_bo = gbm_bo_create(dev, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_LINEAR);
+	bo->width = width;
+	bo->height = height;
+	bo->pitch = gbm_bo_get_stride(bo->gbm_bo);
+	bo->size = height * bo->pitch;
+	bo->format = gbm_bo_get_format(bo->gbm_bo);
+	bo->modifiers = gbm_bo_get_modifier(bo->gbm_bo);
+	bo->handle = gbm_bo_get_handle(bo->gbm_bo).u32;
+	ret = drmModeAddFB(gbm_device_get_fd(dev), width, height, 24, gbm_bo_get_bpp(bo->gbm_bo), bo->pitch, bo->handle, &bo->fb_id);
+	if(ret) {
+		swl_error("Unable to add fb to drm card\n");
+	}
+
+	return 0;
+	/*DRM DUMB BUFFER
 
 	if(!bo) {
 		swl_error("Invalid input create fb\n");
@@ -99,14 +99,13 @@ int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height)
 		swl_error("Unable to map dumb buffer\n");
 		goto error_fb;
 	}
-
+	swl_debug("Offset: %lu\n", bo->offset);
 	bo->data = mmap(NULL, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bo->offset);
 	if(bo->data == MAP_FAILED) {
 		swl_error("MMAP failed\n");
 		goto error_fb;
 	}
 
-	memset(bo->data, 0xaa, bo->size);
 	return 0;
 
 	error_fb:
@@ -114,6 +113,7 @@ int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height)
 	error_destroy:
 	drmModeDestroyDumbBuffer(fd, bo->handle);
 	return ret;
+	*/
 }
 
 
@@ -133,10 +133,44 @@ int swl_drm_destroy_fb(int fd, swl_buffer_t *bo) {
 
 	return 0;
 }
+/*
+static uint32_t last_fg;
+static uint32_t last_bg;
+static uint8_t last_alpha;
+static uint32_t last_value;
 
+uint32_t alpha_blend(uint8_t alpha, uint32_t fg, uint32_t bg) {
+	if(alpha == last_alpha && fg == last_fg && bg == last_bg) return last_value;
+	float nfloat, opnfloat;
+	uint8_t r1, r2, g1, g2, b1, b2, a1, a2;
+	uint32_t dst, blend_red, blend_blue, blend_green;
+	nfloat = (float)alpha / 255.0f;
+	opnfloat = 1.0f - nfloat;
+
+	a1 = (fg >> 24) & 0xff;
+	r1 = (fg >> 16) & 0xff;
+	g1 = (fg >> 8) & 0xff;
+	b1 = (fg & 0xff);
+
+	a2 = (bg >> 24) & 0xff;
+	r2 = (bg >> 16) & 0xff;
+	g2 = (bg >> 8) & 0xff;
+	b2 = (bg & 0xff);
+	
+	dst =	((uint32_t)((nfloat * a1) + (opnfloat * a2))) << 24;
+	dst |= ((uint32_t)((nfloat * r1) + (opnfloat * r2))) << 16;
+	dst |= ((uint32_t)((nfloat * g1) + (opnfloat * g2))) << 8;
+	dst |= ((uint32_t)((nfloat * b1) + (opnfloat * b2)));
+	last_fg = fg;
+	last_bg = bg;
+	last_alpha = alpha;
+	last_value = dst;
+	return dst;
+}
 
 static void render_surface_texture(swl_output_t *output, swl_output_texture_t *texture,
 		int32_t xoff, int32_t yoff) {
+	
 	swl_debug("%p %p\n", texture, output);
 	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
 	uint32_t *dst = (uint32_t *)drm_output->buffer[drm_output->front_buffer].data;
@@ -145,12 +179,15 @@ static void render_surface_texture(swl_output_t *output, swl_output_texture_t *t
 	if(texture->data) {
 		for(uint32_t y = 0; y < texture->height; y++) {
 			for(uint32_t x = 0; x < texture->width; x++) {
-				dst[(y + yoff) * width + x + xoff] = ((uint32_t*)texture->data)[y * texture->width + x];
+				uint32_t color1 = ((uint32_t*)texture->data)[y * texture->width + x];
+				uint32_t color2 = dst[(y + yoff) * width + x + xoff];
+				dst[(y + yoff) * width + x + xoff] = alpha_blend((color1 >> 24) & 0xff, color1, color2);
 			}
 		}
 	}
 }
 
+*/
 void swl_output_copy(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t width, int32_t height, int32_t xoff, int32_t yoff) {
 	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
 	uint32_t *src = (uint32_t *)drm_output->buffer[drm_output->front_buffer].data;
@@ -166,7 +203,122 @@ void swl_output_copy(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t
 	}
 }
 
+typedef struct {
+	uint16_t pixel_clock;
+	uint8_t hactive_lsb;
+	uint8_t hblank_lsb;
+	uint8_t hactive_msb: 4;
+	uint8_t hblank_msb: 4;
+	uint8_t vactive_lsb;
+	uint8_t vblank_lsb;
+	uint8_t vactive_msb: 4;
+	uint8_t vblank_msb: 4;
+	uint8_t hfront_lsb;
+	uint8_t hsync_lsb;
+	uint8_t todo1;
+	uint8_t todo2;
+	uint8_t himage_lsb;
+	uint8_t vimage_lsb;
+	uint8_t todo3;
+	uint8_t hborder;
+	uint8_t vborder;
+	uint8_t features;
+}__attribute__((packed)) edid_timing_desc_t;
+
+typedef struct {
+	uint8_t red_x_lsb: 2;
+	uint8_t red_y_lsb: 2;
+	uint8_t green_x_lsb: 2;
+	uint8_t green_y_lsb: 2;
+	uint8_t blue_x_lsb: 2;
+	uint8_t blue_y_lsb: 2;
+	uint8_t white_x_lsb: 2;
+	uint8_t white_y_lsb: 2;
+	uint8_t red_x_msb;
+	uint8_t red_y_msb;
+	uint8_t green_x_msb;
+	uint8_t green_y_msb;
+	uint8_t blue_x_msb;
+	uint8_t blue_y_msb;
+	uint8_t white_x_msb;
+	uint8_t white_y_msb;
+}__attribute__((packed)) edid_chromaticity_t;
+
+typedef struct {
+	uint8_t xres;
+	uint8_t image_aspect: 2;
+	uint8_t vert_frequency: 6;
+}__attribute__((packed)) edid_std_timing_t;
+
+typedef struct {
+	uint64_t header_pattern;
+	uint16_t be_manufacturer_id;
+	uint16_t le_product_code;
+	uint32_t serial_number;
+	uint8_t manufacture_week;
+	uint8_t manufacture_year;
+	uint8_t version;
+	uint8_t revision;
+	uint8_t digital_input: 1;
+	uint8_t input_parameters: 7;
+	uint8_t hscreensizecm;
+	uint8_t vscreensizecm;
+	uint8_t gamma;
+	uint8_t features;
+	edid_chromaticity_t chromaticity;
+	uint8_t timing_bitmap_1;
+	uint8_t timing_bitmap_2;
+	uint8_t timing_bitmap_3;
+	edid_std_timing_t timings[8];
+	edid_timing_desc_t timing_descriptors[4];
+	uint8_t extension_count;
+	uint8_t checksum;
+}__attribute__((packed)) edid_t;
+
+void swl_output_parse_edid(int fd, drmModeConnector *connector, char **pnp, char **model, int32_t *refresh) {
+	drmModePropertyPtr prop;
+	drmModePropertyBlobPtr blob;
+	edid_t *edid;
+
+	/*PNP should only be 3 characters long
+	 * model is a 16 bit int in hex so 
+	 * 0xffff at the longest
+	 */
+	*pnp = calloc(1, 4);
+	*model = calloc(1, 7);
+
+	for(uint32_t i = 0; i < connector->count_props; ++i) {
+		prop = drmModeGetProperty(fd, connector->props[i]);
+		
+		if(strcmp(prop->name, "EDID") == 0) {
+			blob = drmModeGetPropertyBlob(fd, connector->prop_values[i]);
+			edid = blob->data;
+			swl_debug("EDID %d\n", blob->length);
+			for(uint32_t x = 0; x < blob->length; ++x) {
+				swl_log_printf(SWL_LOG_DEBUG, "0x%02x, ", ((uint8_t*)blob->data)[x]);
+				if((x + 1) % 16 == 0) {
+					swl_log_printf(SWL_LOG_DEBUG, "\n");
+				}
+
+			}
+			swl_debug("%x\n", edid->be_manufacturer_id);
+			snprintf(*model, 7, "0x%04x", edid->le_product_code);
+			uint16_t manufacturer = (edid->be_manufacturer_id >> 8) | ((edid->be_manufacturer_id & 0xff) << 8);
+			swl_debug("%x\n", manufacturer);
+			(*pnp)[2] = ((manufacturer >> 0) & 0x1f) + ('A' - 1);
+			(*pnp)[1] = ((manufacturer >> 5) & 0x1f) + ('A' - 1);
+			(*pnp)[0] = ((manufacturer >> 10) & 0x1f) + ('A' - 1);
+		}
+		swl_debug("%s %d %d %d\n", prop->name, prop->count_blobs, prop->count_enums, prop->count_values);
+	
+		drmModeFreeProperty(prop);
+	}
+}
+
 void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *output) {
+	output->description = calloc(1, 256);
+	output->name = calloc(1, 64);
+
 	output->mode.refresh = connector->modes->vrefresh;
 	output->mode.width = connector->modes->hdisplay;
 	output->mode.flags = WL_OUTPUT_MODE_CURRENT | WL_OUTPUT_MODE_PREFERRED;
@@ -177,24 +329,26 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	output->subpixel = WL_OUTPUT_SUBPIXEL_UNKNOWN;
 	output->height = connector->mmHeight;
 	output->width = connector->mmWidth;
-	output->model = "DRM Monitor";
-	output->make = "DRM Monitor";
-	output->name = "SWL-Monitor";
-	output->description = "Uhhh output";
+	
+	swl_output_parse_edid(fd, connector, &output->make, &output->model, &output->mode.refresh);
 
-	output->draw_texture = render_surface_texture; 
+	snprintf(output->name, 64, "%s-%d", drmModeGetConnectorTypeName(connector->connector_type), connector->connector_id);
+	snprintf(output->description, 256, "%s %s (%s)", output->name, output->make, output->model);
+	
+
+	//output->draw_texture = render_surface_texture; 
 	output->copy = swl_output_copy;
 	wl_signal_init(&output->frame);
 	wl_signal_init(&output->destroy);
 }
 
-swl_drm_output_t *swl_drm_output_create(int fd, drmModeRes *res, drmModeConnector *conn) {
+swl_drm_output_t *swl_drm_output_create(struct gbm_device *device, int fd, drmModeRes *res, drmModeConnector *conn) {
 	swl_drm_output_t *output = calloc(1, sizeof(swl_drm_output_t));
 	output->connector = conn;
 	swl_output_init_common(fd, conn, &output->common);
 	output->original_crtc = swl_drm_get_conn_crtc(fd, conn, res);
-	swl_drm_create_fb(fd, &output->buffer[0], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
-	swl_drm_create_fb(fd, &output->buffer[1], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
+	swl_drm_create_fb(device, &output->buffer[0], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
+	swl_drm_create_fb(device, &output->buffer[1], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
 	
 	return output;
 }
@@ -214,7 +368,7 @@ void swl_drm_outputs_destroy(int fd, struct wl_list *list) {
 	}
 }
 
-int drm_create_outputs(int fd, drmModeRes *res, struct wl_list *list) {
+int drm_create_outputs(struct gbm_device *dev, int fd, drmModeRes *res, struct wl_list *list) {
 	uint32_t count;
 	drmModeConnector *connector = NULL;
 	swl_drm_output_t *output;
@@ -225,7 +379,7 @@ int drm_create_outputs(int fd, drmModeRes *res, struct wl_list *list) {
 			swl_warn("Failed to get connector %d\n", res->connectors[count]);
 			continue;
 		} else if(connector->connection == DRM_MODE_CONNECTED) {
-			output = swl_drm_output_create(fd, res, connector);
+			output = swl_drm_output_create(dev, fd, res, connector);
 			wl_list_insert(list, &output->link);
 			continue;
 		}
@@ -272,13 +426,14 @@ static void modeset_page_flip_event(int fd, unsigned int frame,
 
 	output->pending = false;
 	if (!output->shutdown) {
-		memset(output->buffer[output->front_buffer].data, 0xaa, output->buffer[output->front_buffer].size);
-
+		swl_debug("Front Buffer: %d Emit\n", output->front_buffer);
 		wl_signal_emit(&output->common.frame, output);
 
-		drmModePageFlip(fd, output->original_crtc->crtc_id, 
+		if(drmModePageFlip(fd, output->original_crtc->crtc_id, 
 				output->buffer[output->front_buffer].fb_id, 
-				DRM_MODE_PAGE_FLIP_EVENT, data);
+				DRM_MODE_PAGE_FLIP_EVENT, data)) {
+			swl_error("Page Flip Failed\n");
+		}
 		output->front_buffer ^= 1;
 		output->pending = true;
 	}
@@ -289,7 +444,7 @@ int swl_drm_readable(int fd, uint32_t mask, void *data) {
 	ev.version = 2;
 	ev.page_flip_handler = modeset_page_flip_event;
 
-	drmHandleEvent(fd, &ev);
+	swl_error("Drm_hande_event: %d\n", drmHandleEvent(fd, &ev));
 	
 	return 0;
 }
@@ -317,9 +472,7 @@ int swl_drm_backend_stop(swl_display_backend_t *display) {
 int swl_drm_backend_start(swl_display_backend_t *display) {
 	swl_drm_backend_t *drm = (swl_drm_backend_t*)display;
 	swl_drm_output_t *output;
-	swl_debug("%p\n", drm);
 	wl_list_for_each(output, &drm->outputs, link) {
-		swl_debug("%p\n", output);
 		output->common.global = wl_global_create(drm->display, &wl_output_interface, 
 				SWL_OUTPUT_VERSION, output, swl_output_bind);
 		drmModeSetCrtc(drm->fd, output->original_crtc->crtc_id, output->buffer[0].fb_id, 
@@ -366,6 +519,10 @@ void swl_drm_activate(struct wl_listener *listener, void *data) {
 	}
 }
 
+int swl_drm_get_fd(swl_display_backend_t *display) {
+	swl_drm_backend_t *drm = (swl_drm_backend_t *)display;
+	return drm->fd;
+}
 
 swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_session_backend_t *session) {
 	const char *drm_device;
@@ -380,12 +537,13 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 
 	drm = calloc(1, sizeof(swl_drm_backend_t));
 	drm->dev = session->open_dev(session, drm_device, &drm->fd);
+	drm->gbm = gbm_create_device(drm->fd);
 
 	res = drmModeGetResources(drm->fd);
 
 	wl_list_init(&drm->outputs);
 
-	drm_create_outputs(drm->fd, res, &drm->outputs);
+	drm_create_outputs(drm->gbm, drm->fd, res, &drm->outputs);
 	drmModeFreeResources(res);
 	drm->display = display;
 	wl_signal_init(&drm->common.new_output);
@@ -398,7 +556,7 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 
 	drm->readable = wl_event_loop_add_fd(loop, drm->fd, WL_EVENT_READABLE,
 			swl_drm_readable, drm);
-
+	drm->common.get_drm_fd = swl_drm_get_fd;
 	return (swl_display_backend_t*)drm;
 }
 

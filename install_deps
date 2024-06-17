@@ -1,0 +1,26 @@
+#!/bin/sh
+
+if [ -f /etc/os-release ]; then
+    # freedesktop.org and systemd
+    . /etc/os-release
+    OS=$NAME
+elif type lsb_release >/dev/null 2>&1; then
+    # linuxbase.org
+    OS=$(lsb_release -si)
+fi
+
+#
+# If your distro is not done please feeel free to contribute or if your 
+# distro updated to different package names also feel free to contribute :)
+#
+
+if [ "$OS" = "Void" ] || [ "$OS" = "VoidLinux" ]; then
+	xbps-install -S havoc wayland wayland-devel wayland-scanner wayland-protocols eudev-libudev libseat-devel libxkbcommon-devel libinput-devel libdrm-devel
+elif [ "$OS" = "Arch Linux" ] || [ "$OS" = "Arch" ]; then
+	pacman -S wayland-protocols wayland libinput libxkbcommon systemd-libs seatd libdrm
+elif [ "$OS" = "Alpine Linux" ]; then
+	apk add wayland-protocols wayland wayland-dev libseat-dev libseat seatd libinput libinput-dev havoc libxkbcommon-dev libxkbcommon libdrm libdrm-dev eudev-dev
+elif [ "$OS" = "Iglunix" ]; then
+	iglu add wayland-protocols libudev-zero libinput wayland libdrm seatd
+	echo "At the moment please manually install xkbcommon from iglupkg"
+fi

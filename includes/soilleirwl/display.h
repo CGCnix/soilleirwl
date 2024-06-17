@@ -5,6 +5,7 @@
 
 typedef struct swl_display_backend {
 	struct wl_signal new_output;
+	int (*get_drm_fd)(struct swl_display_backend *drm);
 } swl_display_backend_t;
 
 

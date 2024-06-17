@@ -3,9 +3,9 @@
 include config.mk
 
 TARGET=soilleir
-COBJS=src/input/libinput.o src/swl-screenshot-server.o src/drm/drm.o src/hotplug/udev.o src/sessions/seatd.o src/xdg-shell-server.o tests/server.o src/logger.o
-CLIBSFLAGS=`pkg-config --cflags libdrm xkbcommon wayland-server libseat libudev libinput libdrm`
-CLIBS=`pkg-config --libs libdrm xkbcommon wayland-server libseat libudev libinput libdrm`
+COBJS=src/egl.o src/input/libinput.o src/swl-screenshot-server.o src/drm/drm.o src/hotplug/udev.o src/sessions/seatd.o src/xdg-shell-server.o tests/server.o src/logger.o
+CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm gl egl`
+CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl gl`
 
 
 all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot
