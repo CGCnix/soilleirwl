@@ -6,7 +6,6 @@
 #include <gbm.h>
 
 typedef struct swl_buffer {
-	struct gbm_bo *gbm_bo;
 	uint32_t handle, fb_id;
 	uint32_t format, height, width, pitch;
 	size_t size, offset;

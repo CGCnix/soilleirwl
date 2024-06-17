@@ -1,4 +1,3 @@
-#include <gbm.h>
 #include <soilleirwl/renderer.h>
 #include <soilleirwl/logger.h>
 #include <soilleirwl/private/drm_output.h>

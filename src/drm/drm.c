@@ -15,11 +15,7 @@
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
-
 #include <sys/mman.h>
-
-#include <gbm.h>
-
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -27,7 +23,6 @@
 typedef struct swl_drm_backend {
 	swl_display_backend_t common;
 	int fd, dev;
-	struct gbm_device *gbm; 
 
 	struct wl_list outputs;
 
@@ -54,33 +49,16 @@ drmModeCrtc *swl_drm_get_conn_crtc(int fd, drmModeConnector *conn, drmModeRes *r
 	return crtc;
 }
 
-int swl_drm_create_fb(struct gbm_device *dev, swl_buffer_t *bo, uint32_t width, uint32_t height) {
+int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height) {
 	int ret;
 
-
-	bo->gbm_bo = gbm_bo_create(dev, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_LINEAR);
 	bo->width = width;
 	bo->height = height;
-	bo->pitch = gbm_bo_get_stride(bo->gbm_bo);
-	bo->size = height * bo->pitch;
-	bo->format = gbm_bo_get_format(bo->gbm_bo);
-	bo->modifiers = gbm_bo_get_modifier(bo->gbm_bo);
-	bo->handle = gbm_bo_get_handle(bo->gbm_bo).u32;
-	ret = drmModeAddFB(gbm_device_get_fd(dev), width, height, 24, gbm_bo_get_bpp(bo->gbm_bo), bo->pitch, bo->handle, &bo->fb_id);
-	if(ret) {
-		swl_error("Unable to add fb to drm card\n");
-	}
-
-	return 0;
-	/*DRM DUMB BUFFER
-
 	if(!bo) {
 		swl_error("Invalid input create fb\n");
 		return -1;
 	}
 
-	bo->width = width;
-	bo->height = height;
 
 	ret = drmModeCreateDumbBuffer(fd, width, height, 32, 0, &bo->handle, &bo->pitch, &bo->size);
 	if(ret) {
@@ -113,7 +91,6 @@ int swl_drm_create_fb(struct gbm_device *dev, swl_buffer_t *bo, uint32_t width, 
 	error_destroy:
 	drmModeDestroyDumbBuffer(fd, bo->handle);
 	return ret;
-	*/
 }
 
 
@@ -342,13 +319,13 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	wl_signal_init(&output->destroy);
 }
 
-swl_drm_output_t *swl_drm_output_create(struct gbm_device *device, int fd, drmModeRes *res, drmModeConnector *conn) {
+swl_drm_output_t *swl_drm_output_create(int fd, drmModeRes *res, drmModeConnector *conn) {
 	swl_drm_output_t *output = calloc(1, sizeof(swl_drm_output_t));
 	output->connector = conn;
 	swl_output_init_common(fd, conn, &output->common);
 	output->original_crtc = swl_drm_get_conn_crtc(fd, conn, res);
-	swl_drm_create_fb(device, &output->buffer[0], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
-	swl_drm_create_fb(device, &output->buffer[1], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
+	swl_drm_create_fb(fd, &output->buffer[0], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
+	swl_drm_create_fb(fd, &output->buffer[1], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
 	
 	return output;
 }
@@ -368,7 +345,7 @@ void swl_drm_outputs_destroy(int fd, struct wl_list *list) {
 	}
 }
 
-int drm_create_outputs(struct gbm_device *dev, int fd, drmModeRes *res, struct wl_list *list) {
+int drm_create_outputs(int fd, drmModeRes *res, struct wl_list *list) {
 	uint32_t count;
 	drmModeConnector *connector = NULL;
 	swl_drm_output_t *output;
@@ -379,7 +356,7 @@ int drm_create_outputs(struct gbm_device *dev, int fd, drmModeRes *res, struct w
 			swl_warn("Failed to get connector %d\n", res->connectors[count]);
 			continue;
 		} else if(connector->connection == DRM_MODE_CONNECTED) {
-			output = swl_drm_output_create(dev, fd, res, connector);
+			output = swl_drm_output_create(fd, res, connector);
 			wl_list_insert(list, &output->link);
 			continue;
 		}
@@ -537,13 +514,12 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 
 	drm = calloc(1, sizeof(swl_drm_backend_t));
 	drm->dev = session->open_dev(session, drm_device, &drm->fd);
-	drm->gbm = gbm_create_device(drm->fd);
 
 	res = drmModeGetResources(drm->fd);
 
 	wl_list_init(&drm->outputs);
 
-	drm_create_outputs(drm->gbm, drm->fd, res, &drm->outputs);
+	drm_create_outputs(drm->fd, res, &drm->outputs);
 	drmModeFreeResources(res);
 	drm->display = display;
 	wl_signal_init(&drm->common.new_output);
