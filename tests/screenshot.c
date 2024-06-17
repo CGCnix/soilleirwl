@@ -273,9 +273,9 @@ int writeImage(char* filename, int width, int height, uint8_t *buffer, char *tit
    printf("%lu\n", sizeof(png_byte));
 	 for (y=0 ; y<height ; y++) {
       for (x=0 ; x<width ; x++) {
-         row[x*3 + 0] = (buffer)[y*(width*4) + (x * 4 + 0)];
+         row[x*3 + 0] = (buffer)[y*(width*4) + (x * 4 + 2)]; // BGR to RGB conversion is handled here
          row[x*3 + 1] = (buffer)[y*(width*4) + (x * 4 + 1)];
-         row[x*3 + 2] = (buffer)[y*(width*4) + (x * 4 + 2)];
+         row[x*3 + 2] = (buffer)[y*(width*4) + (x * 4 + 0)];
 
 			}
       png_write_row(png_ptr, row);
