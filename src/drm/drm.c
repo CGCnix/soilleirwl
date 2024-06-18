@@ -41,11 +41,25 @@ drmModeCrtc *swl_drm_get_conn_crtc(int fd, drmModeConnector *conn, drmModeRes *r
 		encoder = drmModeGetEncoder(fd, conn->encoder_id);
 	}
 
-	if(encoder || encoder->crtc_id) {
+	if(encoder && encoder->crtc_id) {
+		swl_debug("CRTC ID: %d\n", encoder->crtc_id);
 		crtc = drmModeGetCrtc(fd, encoder->crtc_id);
 		drmModeFreeEncoder(encoder);
 	}
 
+	if(crtc == NULL) {
+		uint32_t crtcs = drmModeConnectorGetPossibleCrtcs(fd, conn);
+		for(uint32_t i = 0; i < res->count_crtcs; i++) {
+			if(crtcs & (1 << i)) { /*Compatible CRTC*/
+				crtc = drmModeGetCrtc(fd, res->crtcs[i]);
+			}
+		}
+	}
+
+	if(crtc == NULL) {
+		swl_error("Crtc Error connector: %d %d\n", conn->connector_id, conn->encoder_id);
+		exit(1);
+	}
 	return crtc;
 }
 
@@ -58,7 +72,6 @@ int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height)
 		swl_error("Invalid input create fb\n");
 		return -1;
 	}
-
 
 	ret = drmModeCreateDumbBuffer(fd, width, height, 32, 0, &bo->handle, &bo->pitch, &bo->size);
 	if(ret) {

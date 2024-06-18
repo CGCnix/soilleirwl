@@ -221,6 +221,7 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 		target->output = drm_output;
 		for(uint32_t buf = 0; buf < 2; ++buf) {
 			drmPrimeHandleToFD(egl->drmfd, drm_output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
+			swl_debug("dma buf %d %d\n", egl->drmfd, dmabuf);	
 			target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, drm_output->buffer[buf].height,
 			drm_output->buffer[buf].width, drm_output->buffer[buf].pitch, 0);
 
@@ -233,6 +234,8 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 			glBindFramebuffer(GL_FRAMEBUFFER, target->fbo[buf]);
 			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 			GL_RENDERBUFFER, target->rbo[buf]);
+			glFlush();
+			glFinish();
 			GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 			if(fb_status != GL_FRAMEBUFFER_COMPLETE) {
@@ -399,7 +402,7 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 		}
 	}
 	egl->drmfd = drm_fd;
-	egl->display = egl->funcs.EGLGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, devices[1], NULL);
+	egl->display = egl->funcs.EGLGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, preffered, NULL);
 	eglInitialize(egl->display, &major, &minor);
 	swl_debug("EGL Version: %d %d\n", major, minor);
 	eglBindAPI(EGL_OPENGL_ES_API);
