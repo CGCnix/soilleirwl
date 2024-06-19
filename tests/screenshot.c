@@ -17,6 +17,7 @@
 
 typedef struct test_output {
 	struct wl_output *output;
+	const char *name;
 	int32_t height, width;
 	struct wl_buffer *buffer;
 	void *data;
@@ -92,7 +93,8 @@ static struct wl_buffer *get_frame(test_client_t *client, test_output_t *output)
   
 	width = output->width;
 	height = output->height;
-
+	
+	/*TODO: don't assume format*/
 	stride = width * 4;
   size = stride * height;
 
@@ -112,17 +114,7 @@ static struct wl_buffer *get_frame(test_client_t *client, test_output_t *output)
 	struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0,
 					width, height, stride, WL_SHM_FORMAT_XRGB8888);
 
-	/* Draw checkerboxed background */
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-                data[y * width + x] = 0x00362a28;
-        }
-    }
-	
-	if(client->manager) {
-		zswl_screenshot_manager_copy_output(client->manager, output->output, buffer, width, height, 0, 0);
-		
-	}
+	zswl_screenshot_manager_copy_output(client->manager, output->output, buffer, width, height, 0, 0);
 
 	output->buffer = buffer;
 	output->data = data;
@@ -134,20 +126,19 @@ static struct wl_buffer *get_frame(test_client_t *client, test_output_t *output)
 
 void wl_output_name(void *data, struct wl_output *output, const char *name) {
 	printf("Output %p name: %s\n", output, name);
+	test_output_t *test_output = data;
+	test_output->name = strdup(name);
 }
 
 void wl_output_description(void *data, struct wl_output *output, const char *desc) {
-	printf("Output %p desc: %s\n", output, desc);
 }
 
 void wl_output_scale(void *data, struct wl_output *output, int32_t scale) {
-	printf("Output %p scale: %d\n", output, scale);
 }
 
 void wl_output_mode(void *data, struct wl_output *output, uint32_t flags,
 		int32_t width, int32_t height, int32_t refresh) {
 	test_output_t *test_output = data;
-	printf("Output %p mode: %dx%d@%dHz\n", output, width, height, refresh);
 	test_output->width = width;
 	test_output->height = height;
 }
@@ -155,19 +146,9 @@ void wl_output_mode(void *data, struct wl_output *output, uint32_t flags,
 void wl_output_geometry(void *data, struct wl_output *output, int32_t x, int32_t y,
 		int32_t width, int32_t height, int32_t subpixel, const char *make,
 		const char *model, int32_t transform) {
-	printf("Output %p geom:\n"
-			"X&Y: %d %d\n"
-			"width & height: %dmm %dmm\n"
-			"subpixel: %d\n"
-			"make: %s\n"
-			"model: %s\n"
-			"transform: %d\n",
-			output, x, y, width, height, subpixel, make, model, transform);
-
 }
 
 void wl_output_done(void *data, struct wl_output *output) {
-	wl_output_release(output);
 }
 
 
@@ -183,7 +164,6 @@ struct wl_output_listener output_listen = {
 void wl_registry_global(void *data, struct wl_registry *registry, uint32_t name,
 		const char *interface, uint32_t version) { 
 	test_client_t *client = data;
-	printf("%s\n",interface);	
 
 	if(strcmp(wl_output_interface.name, interface) == 0) {
 		test_output_t *output = calloc(1, sizeof(test_output_t));	
@@ -294,27 +274,68 @@ int writeImage(char* filename, int width, int height, uint8_t *buffer, char *tit
 }
 
 
-int main(void) {
+int main(int argc, char **argv) {
+	char *filename = "swl_screenshot.png";
+	bool dump = false;
+	const char *monitor_name = NULL;
 	test_client_t *client = calloc(1, sizeof(test_client_t));
 	test_output_t *output;
-	char filename[] = "output-0"; 
 	wl_list_init(&client->outputs);
 	
+	for(uint32_t i = 1; i < argc; i++) {
+		if(argv[i][0] == '-' && argv[i][1] != '-') {
+			if(argv[i][1] == 'n') {
+				monitor_name = argv[i+1];
+				i += 1;
+			} else if(argv[i][1] == 'o') {
+				filename = argv[i+1];
+				i += 1;
+			} else if(argv[i][1] == 'd') {
+				dump = true;	
+			}
+		} else {
+			printf("Unknown Positional argument at %d value %s\n", i, argv[i]);
+		}
+	}
+
+	if(monitor_name == NULL && !dump) {
+		printf("Please Supply the monitor to capture\n"
+				"Value should be that of the wl_output_name event\n");
+		return 1;
+	} 
+	if(filename == NULL && !dump) {
+		printf("Error -o passed but no argument for filename given\n");
+		return 1;
+	}
 
 	client->display = wl_display_connect(NULL);
 	client->registry = wl_display_get_registry(client->display);
 	wl_registry_add_listener(client->registry, &reg_listen, client);
-	wl_display_roundtrip(client->display);
-
-
+	/*Complete two round trips one to bind registry outputs and screenshot
+	 * manager the second to process output events;
+	 */
 	wl_display_roundtrip(client->display);
 	
+	if(!client->manager && !dump) {
+		printf("Compositor support for swl_screenshot not found\n");
+		return 1;
+	}
+
+	wl_display_roundtrip(client->display);
+
+	if(dump) {
+		return 1;
+	} 
+	
+	printf("monitor_name %s\n", monitor_name);
+
 	wl_list_for_each(output, &client->outputs, link) {
-		get_frame(client, output);
-		wl_display_roundtrip(client->display);
-		printf("%p\n", client->manager);
-		writeImage(filename, output->width, output->height, output->data, "swl_screenshot");
-		filename[7]++;
+		printf("Output name: %s\n", output->name);
+		if(strcmp(output->name, monitor_name) == 0) {
+			get_frame(client, output);
+			wl_display_roundtrip(client->display);
+			writeImage(filename, output->width, output->height, output->data, "swl_screenshot");
+		}
 	}
 
 	wl_display_roundtrip(client->display);
