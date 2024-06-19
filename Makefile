@@ -8,28 +8,28 @@ CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev lib
 CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl gl`
 
 
-all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot
+all: ./src/swl-screenshot-server.h ./src/xdg-shell-server.h $(TARGET) screenshot
 
 
-tests/swl-screenshot-client.h: ./protocols/swl-screenshot-unstable-v1.xml
+./tests/swl-screenshot-client.h: ./protocols/swl-screenshot-unstable-v1.xml
 	$(WAYLAND_SCANNER) client-header  ./protocols/swl-screenshot-unstable-v1.xml $@
 
-tests/swl-screenshot-client.c: ./protocols/swl-screenshot-unstable-v1.xml
+./tests/swl-screenshot-client.c: ./protocols/swl-screenshot-unstable-v1.xml
 	$(WAYLAND_SCANNER) private-code  ./protocols/swl-screenshot-unstable-v1.xml $@
 
 screenshot: ./tests/screenshot.c ./tests/swl-screenshot-client.c ./tests/swl-screenshot-client.h
 	$(CC) $(CFLAGS) -o $@ ./tests/screenshot.c ./tests/swl-screenshot-client.c -lwayland-client -lpng
 
-src/swl-screenshot-server.h: ./protocols/swl-screenshot-unstable-v1.xml
+./src/swl-screenshot-server.h: ./protocols/swl-screenshot-unstable-v1.xml
 	$(WAYLAND_SCANNER) server-header  ./protocols/swl-screenshot-unstable-v1.xml $@
 
-src/swl-screenshot-server.c: ./protocols/swl-screenshot-unstable-v1.xml
+./src/swl-screenshot-server.c: ./protocols/swl-screenshot-unstable-v1.xml
 	$(WAYLAND_SCANNER) private-code  ./protocols/swl-screenshot-unstable-v1.xml $@
 
-src/xdg-shell-server.h:
+./src/xdg-shell-server.h:
 	$(WAYLAND_SCANNER) server-header  $(WAYLAND_DIR)/stable/xdg-shell/xdg-shell.xml $@
 
-src/xdg-shell-server.c:
+./src/xdg-shell-server.c:
 	$(WAYLAND_SCANNER) private-code $(WAYLAND_DIR)/stable/xdg-shell/xdg-shell.xml $@
 
 .c.o:
