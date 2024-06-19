@@ -23,4 +23,6 @@ elif [ "$OS" = "Alpine Linux" ]; then
 elif [ "$OS" = "Iglunix" ]; then
 	iglu add wayland-protocols libudev-zero libinput wayland libdrm seatd
 	echo "At the moment please manually install xkbcommon from iglupkg"
+elif [ "$OS" = "Fedora Linux" ] || [ -f /etc/redhat-release ]; then
+	dnf install wayland-devel libseat-devel libinput-devel libpng-devel libglvnd-devel systemd-devel libxkbcommon-devel libdrm-devel mesa-libgbm-devel
 fi
