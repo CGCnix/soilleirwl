@@ -1,6 +1,9 @@
 #pragma once
 
 
+typedef struct swl_output swl_output_t;
+
+#include "soilleirwl/renderer.h"
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 
@@ -18,8 +21,6 @@ typedef struct {
 	uint64_t size;
 	void *data;
 } swl_output_texture_t;
-
-typedef struct swl_output swl_output_t;
 
 struct swl_output {
 	/*Version 1.0*/
@@ -41,10 +42,12 @@ struct swl_output {
 	/*Version 4.0*/
 	char *name;
 	char *description;
-	
-	void (*draw_texture)(swl_output_t *output, swl_output_texture_t *texture, int32_t xoff, int32_t yoff);	
+
+	swl_renderer_t *renderer;
+
 	void (*copy)(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t width, int32_t height, int32_t xoff, int32_t yoff);
-	
+
+	swl_texture_t *background;
 
 	struct wl_signal frame; /*Inform the compositor this output wants a frame*/
 	struct wl_signal destroy;

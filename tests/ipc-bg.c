@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <string.h>
 #include <sys/un.h>
 #include <sys/socket.h>
@@ -69,8 +70,6 @@ png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
 	for(int y = 0; y < *height; y++) {
     row_pointers[y] = (png_byte*)malloc(png_get_rowbytes(png_ptr, info_ptr));
   }
-	
-
 
 	png_read_image(png_ptr, row_pointers);
 	printf("Color type: %d, %d, %d\n", *ctype, PNG_COLOR_TYPE_RGBA, *depth);
@@ -121,7 +120,6 @@ swl_ipc_background_image *create_buffer(uint32_t format, uint32_t width, uint32_
 	uint8_t *data = mmap(NULL, buffer->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
 	for(uint32_t y = 0; y < height; y++) {
-		fprintf(stderr,"%p %p\n",data, rows[y]);
 		memcpy(&data[y * buffer->stride], rows[y], buffer->stride);
 	}
 
@@ -171,22 +169,55 @@ int send_fd(int32_t fd, int32_t fd_to_send, swl_ipc_background_image *image) {
 
 }
 
+#include <drm_fourcc.h>
 
 int main(int argc, char *argv[]) {
 	struct sockaddr_un addr = {0};
-	addr.sun_family = AF_UNIX;
-	memcpy(addr.sun_path, "/tmp/swl-srvipc", 15);
-	int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-	int image_fd;
 	static swl_ipc_background_image *image;
 	uint32_t width, height, depth, format;
-
-	if(connect(sockfd, (void*)&addr, sizeof(addr))) {
-		printf("Error %m\n");
-
+	int sockfd, image_fd;
+	FILE *fp;
+	const char *swl_ipc = getenv("SWL_IPC_SOCKET");
+	const char *image_name = NULL;
+	bool invert;
+	for(uint32_t i = 1; i < argc; i++) {
+		if(argv[i][0] == '-' && argv[i][1] != '-') {
+			if(argv[i][1] == 'n') {
+				image_name = argv[i+1];
+				i += 1;
+			} else if(argv[i][1] == 'i') {
+				invert = true;	
+			}
+		} else {
+			printf("Unknown Positional argument at %d value %s\n", i, argv[i]);
+		}
 	}
 
-	FILE *fp = fopen("/home/cat/Images/bg.png", "r");
+	if(image_name == NULL) {
+		printf("Usage: %s -n <PATH_TO_PNG>\n", argv[0]);
+		return -1;
+	}
+
+	if(!swl_ipc) {
+		printf("SWL_IPC_SOCKET env variable is not set\n");
+		return-1;
+	}
+	
+	addr.sun_family = AF_UNIX;
+	strcpy(addr.sun_path, swl_ipc);
+	
+	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if(sockfd < 0) {
+		printf("Error failed to create socket: %s\n", strerror(errno));
+		return -1;
+	}
+
+	if(connect(sockfd, (void*)&addr, sizeof(addr)) < 0) {
+		printf("Error failed to connect to %s: %s\n", addr.sun_path, strerror(errno));
+		return -1;
+	}
+
+	fp = fopen(image_name, "r");
 	
 	png_bytepp rows = readpng_get_image(fp, 
 			&width, 
@@ -195,9 +226,14 @@ int main(int argc, char *argv[]) {
 			&format);
 	
 	image = create_buffer(format, width, height, rows, &image_fd);	
+	/*Convert PNG format to something Server understands*/
+	if(invert) {
+		image->format = DRM_FORMAT_RGBA8888;
+	} else {
+		image->format = DRM_FORMAT_BGRA8888;
+	}
 
 	send_fd(sockfd, image_fd, image);	
-
-	while(1);
+	
 	return 0;
 }

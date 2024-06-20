@@ -1,14 +1,12 @@
 #pragma once
+typedef struct swl_renderer swl_renderer_t;
+
+typedef struct swl_texture swl_texture_t;
 
 #include <soilleirwl/interfaces/swl_output.h>
 #include <stdint.h>
 
-typedef struct {
 
-} swl_texture_t;
-
-
-typedef struct swl_renderer swl_renderer_t;
 /* Begin function for binding buffers and any 
  * other setup that the render API requires
  * Need some way to bind an output which would

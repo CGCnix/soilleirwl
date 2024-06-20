@@ -212,6 +212,8 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 
 	drm_output = (swl_drm_output_t*)output;
 	egl = (swl_egl_renderer_t*)render;
+	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+			egl->ctx);
 	
 	target = swl_egl_get_target(drm_output, &egl->targets);
 	if(!target) { /*This is the first attach for this output*/
@@ -220,7 +222,13 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 		int dmabuf;
 		target->output = drm_output;
 		for(uint32_t buf = 0; buf < 2; ++buf) {
-			drmPrimeHandleToFD(egl->drmfd, drm_output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
+			drmPrimeHandleToFD(drm_output->drm_fd, drm_output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
+			if(drm_output->drm_fd != egl->drmfd) {
+				uint32_t handle = 0;
+				drmPrimeFDToHandle(egl->drmfd, dmabuf, &handle);
+				swl_debug("Imported buffer %d into render GPU with handle %d %m\n", dmabuf, handle);
+				drmPrimeHandleToFD(egl->drmfd, handle, DRM_CLOEXEC, &dmabuf);	
+			}
 			swl_debug("dma buf %d %d\n", egl->drmfd, dmabuf);	
 			target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, drm_output->buffer[buf].height,
 			drm_output->buffer[buf].width, drm_output->buffer[buf].pitch, 0);
@@ -285,17 +293,37 @@ typedef struct swl_egl_texture {
 	int32_t width, height;
 } swl_egl_texture_t;
 
+GLenum external_format_to_gl(uint32_t format) {
+	switch (format) {
+		case WL_SHM_FORMAT_XRGB8888:
+		case WL_SHM_FORMAT_ARGB8888:
+		case DRM_FORMAT_XRGB8888:
+		case DRM_FORMAT_ARGB8888:
+			return GL_BGRA_EXT;
+		case DRM_FORMAT_BGRA8888:
+		case DRM_FORMAT_BGRX8888:
+			return GL_RGBA;
+		default:
+			swl_debug("Unknown Format Assuming GL_BGRA_EXT\n");
+			return GL_BGRA_EXT;
+	}
+}
+
 swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width, 
 		uint32_t height, uint32_t format, void *data) {
+	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)render;
 	swl_egl_texture_t *texture = calloc(1, sizeof(swl_egl_texture_t));
+	GLenum glform = external_format_to_gl(format);
+
 	texture->height = height;
 	texture->width = width;
+	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);		
 
 	glGenTextures(1, &texture->id);
 	glBindTexture(GL_TEXTURE_2D, texture->id);
 
 	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, width);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, data);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, glform, GL_UNSIGNED_BYTE, data);
 
 		glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -351,6 +379,9 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);	
 	glUniform1i(tex_loc, 0); // 0 == texture unit 0
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	
+	glFlush();
+	glFinish();
 }
 
 void swl_egl_destroy_texture(swl_renderer_t *render, swl_texture_t *texture) {

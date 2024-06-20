@@ -1,6 +1,8 @@
 #pragma once
 
+
 #include <soilleirwl/interfaces/swl_output.h>
+
 #include <stdint.h>
 #include <xf86drmMode.h>
 #include <gbm.h>
@@ -27,6 +29,7 @@ typedef struct swl_drm_output {
 	int shutdown;
 
 	struct wl_list link;
+	int drm_fd;
 } swl_drm_output_t;
 
 

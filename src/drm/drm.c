@@ -1,6 +1,7 @@
 #include <soilleirwl/display.h>
 #include <soilleirwl/session.h>
 #include <soilleirwl/logger.h>
+#include <soilleirwl/renderer.h>
 
 #include <soilleirwl/interfaces/swl_output.h>
 
@@ -25,7 +26,9 @@ typedef struct swl_drm_backend {
 	int fd, dev;
 
 	struct wl_list outputs;
-
+	
+	swl_renderer_t *renderer;
+	
 	struct wl_display *display;
 	struct wl_event_source *readable;
 
@@ -325,7 +328,7 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	snprintf(output->name, 64, "%s-%d", drmModeGetConnectorTypeName(connector->connector_type), connector->connector_id);
 	snprintf(output->description, 256, "%s %s (%s)", output->name, output->make, output->model);
 	
-
+	
 	//output->draw_texture = render_surface_texture; 
 	output->copy = swl_output_copy;
 	wl_signal_init(&output->frame);
@@ -339,7 +342,7 @@ swl_drm_output_t *swl_drm_output_create(int fd, drmModeRes *res, drmModeConnecto
 	output->original_crtc = swl_drm_get_conn_crtc(fd, conn, res);
 	swl_drm_create_fb(fd, &output->buffer[0], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
 	swl_drm_create_fb(fd, &output->buffer[1], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
-	
+	output->drm_fd = fd;	
 	return output;
 }
 
@@ -463,6 +466,7 @@ int swl_drm_backend_start(swl_display_backend_t *display) {
 	swl_drm_backend_t *drm = (swl_drm_backend_t*)display;
 	swl_drm_output_t *output;
 	wl_list_for_each(output, &drm->outputs, link) {
+		output->common.renderer = drm->renderer;
 		output->common.global = wl_global_create(drm->display, &wl_output_interface, 
 				SWL_OUTPUT_VERSION, output, swl_output_bind);
 		drmModeSetCrtc(drm->fd, output->original_crtc->crtc_id, output->buffer[0].fb_id, 
@@ -514,16 +518,10 @@ int swl_drm_get_fd(swl_display_backend_t *display) {
 	return drm->fd;
 }
 
-swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_session_backend_t *session) {
-	const char *drm_device;
+swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_session_backend_t *session, const char *drm_device) {
 	swl_drm_backend_t *drm;
 	drmModeResPtr res;
 	struct wl_event_loop *loop = wl_display_get_event_loop(display);
-
-	drm_device = "/dev/dri/card0";
-	if(getenv("SWL_DRM_DEVICE")) {
-		drm_device = getenv("SWL_DRM_DEVICE");
-	}
 
 	drm = calloc(1, sizeof(swl_drm_backend_t));
 	drm->dev = session->open_dev(session, drm_device, &drm->fd);
@@ -536,6 +534,8 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 	drmModeFreeResources(res);
 	drm->display = display;
 	wl_signal_init(&drm->common.new_output);
+	/*Create A renderer for this backend*/
+	drm->renderer = swl_egl_renderer_create_by_fd(drm->fd);
 
 	drm->activate.notify = swl_drm_activate;
 	drm->deactivate.notify = swl_drm_deactivate;
