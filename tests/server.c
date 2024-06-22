@@ -718,7 +718,7 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	output->renderer->attach_output(output->renderer, output);
 	output->renderer->begin(output->renderer);
 	
-	output->renderer->clear(output->renderer, 1.0f, 0.2f, 0.2f, 1.0f);
+	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
 	if(output->background) {
 		output->renderer->draw_texture(output->renderer, output->background, 0, 0);
 	}

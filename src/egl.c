@@ -77,7 +77,7 @@ void swl_egl_debug_log(EGLenum error, const char *cmd, EGLint msg_type,
 		EGLLabelKHR thread, EGLLabelKHR object, const char *message) {
 	uint32_t level = swl_egl_msgtype_to_log_level(msg_type);
 
-	swl_log(level, __LINE__, __FILE__, "%d(%p) %p\n", error, cmd, message);
+	swl_log(level, __LINE__, __FILE__, "%d(%s) %s\n", error, cmd, message);
 }
 
 uint32_t swl_gl_severity_to_log_level(GLenum severity) {
@@ -126,24 +126,23 @@ GLuint swl_egl_compile_shader(GLenum type, const char *src) {
 }
 
 void swl_egl_create_shader(swl_egl_renderer_t *renderer) {
-	char *vert_shader = "#version 320 es\n"
-		"layout(location = 0) in vec4 vPosition;\n"
-		"layout(location = 1) in vec2 texcoord;\n"
-		"out vec2 f_texcoord;\n"
+	char *vert_shader = 
+		"attribute vec4 vert_pos;\n"
+		"attribute vec2 texcoord;\n"
+		"varying vec2 f_texcoord;\n"
 		"void main()\n"
 		"{\n"
-		"   gl_Position = vPosition;\n"
-		"		f_texcoord = vec2(texcoord.x, texcoord.y);\n"
+		"	gl_Position = vert_pos;\n"
+		"	f_texcoord = vec2(texcoord.x, texcoord.y);\n"
 		"}\n";
 
-	char *frag_shader = "#version 320 es\n"
+	char *frag_shader = 
 		"precision mediump float;\n"
-		"layout(location = 2) uniform sampler2D ourTexture;\n"
-		"out vec4 out_color;\n"
-		"in vec2 f_texcoord;\n"
+		"uniform sampler2D client_texture;\n"
+		"varying vec2 f_texcoord;\n"
 		"void main()\n"
 		"{\n"
-		"out_color = texture2D(ourTexture, f_texcoord);\n"
+		"	gl_FragColor = texture2D(client_texture, f_texcoord);\n"
 		"}\n";
 
 	GLuint vertexShader;
@@ -444,7 +443,7 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 		0.0f, 1.0f,
 	};
 	glUseProgram(egl->texture_shader);
-	GLint pos_inx = glGetAttribLocation(egl->texture_shader, "vPosition");
+	GLint pos_inx = glGetAttribLocation(egl->texture_shader, "vert_pos");
 	glVertexAttribPointer(pos_inx, 2, GL_FLOAT, GL_FALSE, 0, verts);
 	
 	glEnableVertexAttribArray(0);
@@ -456,7 +455,7 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 	glVertexAttribPointer(uv_inx, 2, GL_FLOAT, GL_FALSE, 0, tex_coords);
 	glEnableVertexAttribArray(uv_inx);
 
-	GLint tex_loc = glGetUniformLocation(egl->texture_shader, "ourTexture" );
+	GLint tex_loc = glGetUniformLocation(egl->texture_shader, "client_texture" );
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);	
 	glUniform1i(tex_loc, 0); // 0 == texture unit 0
