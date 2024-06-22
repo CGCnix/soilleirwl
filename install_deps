@@ -26,5 +26,5 @@ elif [ "$OS" = "Iglunix" ]; then
 elif [ "$OS" = "Fedora Linux" ] || [ -f /etc/redhat-release ]; then
 	dnf install wayland-devel libseat-devel libinput-devel libpng-devel libglvnd-devel systemd-devel libxkbcommon-devel libdrm-devel mesa-libgbm-devel
 elif [ "$OS" = "FreeBSD" ] || [ -f /bin/freebsd-version ]; then
-	pkg install mesa-libs libxkbcommon wayland seatd libudev-devd libinput libdrm libglvnd	
+	pkg install mesa-libs libxkbcommon wayland seatd libudev-devd libinput libdrm libglvnd wayland-protocols png
 fi
