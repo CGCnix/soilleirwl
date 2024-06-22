@@ -60,15 +60,12 @@ int swl_udev_backend_start(void *data) {
 
 	udev_enumerate_scan_devices(inputs);
 	
-	swl_info("Starting udev\n");
 	head = udev_enumerate_get_list_entry(inputs);
 	udev_list_entry_foreach(entry, head) {
 		device = udev_device_new_from_syspath(udev->udev, udev_list_entry_get_name(entry));
 		if(udev_device_get_devnode(device)) {
-			swl_info("Sysname: %s\nDevnode %s\n", udev_list_entry_get_name(entry), udev_device_get_devnode(device));
+			wl_signal_emit(&udev->common.new_input, (void*)udev_device_get_devnode(device));
 		}
-		wl_signal_emit(&udev->common.new_input, udev_device_get_devnode(device));
-
 		udev_device_unref(device);
 	}
 

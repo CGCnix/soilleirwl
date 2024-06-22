@@ -45,7 +45,6 @@ drmModeCrtc *swl_drm_get_conn_crtc(int fd, drmModeConnector *conn, drmModeRes *r
 	}
 
 	if(encoder && encoder->crtc_id) {
-		swl_debug("CRTC ID: %d\n", encoder->crtc_id);
 		crtc = drmModeGetCrtc(fd, encoder->crtc_id);
 		drmModeFreeEncoder(encoder);
 	}
@@ -93,7 +92,7 @@ int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height)
 		swl_error("Unable to map dumb buffer\n");
 		goto error_fb;
 	}
-	swl_debug("Offset: %lu\n", bo->offset);
+
 	bo->data = mmap(NULL, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bo->offset);
 	if(bo->data == MAP_FAILED) {
 		swl_error("MMAP failed\n");
@@ -126,67 +125,16 @@ int swl_drm_destroy_fb(int fd, swl_buffer_t *bo) {
 
 	return 0;
 }
-/*
-static uint32_t last_fg;
-static uint32_t last_bg;
-static uint8_t last_alpha;
-static uint32_t last_value;
 
-uint32_t alpha_blend(uint8_t alpha, uint32_t fg, uint32_t bg) {
-	if(alpha == last_alpha && fg == last_fg && bg == last_bg) return last_value;
-	float nfloat, opnfloat;
-	uint8_t r1, r2, g1, g2, b1, b2, a1, a2;
-	uint32_t dst, blend_red, blend_blue, blend_green;
-	nfloat = (float)alpha / 255.0f;
-	opnfloat = 1.0f - nfloat;
-
-	a1 = (fg >> 24) & 0xff;
-	r1 = (fg >> 16) & 0xff;
-	g1 = (fg >> 8) & 0xff;
-	b1 = (fg & 0xff);
-
-	a2 = (bg >> 24) & 0xff;
-	r2 = (bg >> 16) & 0xff;
-	g2 = (bg >> 8) & 0xff;
-	b2 = (bg & 0xff);
-	
-	dst =	((uint32_t)((nfloat * a1) + (opnfloat * a2))) << 24;
-	dst |= ((uint32_t)((nfloat * r1) + (opnfloat * r2))) << 16;
-	dst |= ((uint32_t)((nfloat * g1) + (opnfloat * g2))) << 8;
-	dst |= ((uint32_t)((nfloat * b1) + (opnfloat * b2)));
-	last_fg = fg;
-	last_bg = bg;
-	last_alpha = alpha;
-	last_value = dst;
-	return dst;
-}
-
-static void render_surface_texture(swl_output_t *output, swl_output_texture_t *texture,
-		int32_t xoff, int32_t yoff) {
-	
-	swl_debug("%p %p\n", texture, output);
-	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
-	uint32_t *dst = (uint32_t *)drm_output->buffer[drm_output->front_buffer].data;
-	uint32_t width = drm_output->buffer[drm_output->front_buffer].width;
-
-	if(texture->data) {
-		for(uint32_t y = 0; y < texture->height; y++) {
-			for(uint32_t x = 0; x < texture->width; x++) {
-				uint32_t color1 = ((uint32_t*)texture->data)[y * texture->width + x];
-				uint32_t color2 = dst[(y + yoff) * width + x + xoff];
-				dst[(y + yoff) * width + x + xoff] = alpha_blend((color1 >> 24) & 0xff, color1, color2);
-			}
-		}
-	}
-}
-
-*/
+/*TODO: this could really be done by the renderer/should be done by the renderer as it would
+ * remove the need to have the buffer physically mmaped
+ */
 void swl_output_copy(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t width, int32_t height, int32_t xoff, int32_t yoff) {
 	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
 	uint32_t *src = (uint32_t *)drm_output->buffer[drm_output->front_buffer].data;
 	uint32_t src_width = drm_output->buffer[drm_output->front_buffer].width;
 	uint32_t *dst = wl_shm_buffer_get_data(buffer);
-	swl_debug("src and dest %p %p\n", src, dst);
+	
 	if(src) {
 		for(uint32_t y = 0; y < height; y++) {
 			for(uint32_t x = 0; x < width; x++) {
@@ -194,6 +142,7 @@ void swl_output_copy(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t
 			}
 		}
 	}
+
 }
 
 typedef struct {
@@ -292,17 +241,17 @@ void swl_output_parse_edid(int fd, drmModeConnector *connector, char **pnp, char
 				if((x + 1) % 16 == 0) {
 					swl_log_printf(SWL_LOG_DEBUG, "\n");
 				}
-
 			}
-			swl_debug("%x\n", edid->be_manufacturer_id);
+			
+			/*Set model to product code*/
 			snprintf(*model, 7, "0x%04x", edid->le_product_code);
+			
 			uint16_t manufacturer = (edid->be_manufacturer_id >> 8) | ((edid->be_manufacturer_id & 0xff) << 8);
-			swl_debug("%x\n", manufacturer);
+			/*Decode the PNP of monitor into ASCII*/
 			(*pnp)[2] = ((manufacturer >> 0) & 0x1f) + ('A' - 1);
 			(*pnp)[1] = ((manufacturer >> 5) & 0x1f) + ('A' - 1);
 			(*pnp)[0] = ((manufacturer >> 10) & 0x1f) + ('A' - 1);
 		}
-		swl_debug("%s %d %d %d\n", prop->name, prop->count_blobs, prop->count_enums, prop->count_values);
 	
 		drmModeFreeProperty(prop);
 	}
@@ -419,7 +368,6 @@ static void modeset_page_flip_event(int fd, unsigned int frame,
 
 	output->pending = false;
 	if (!output->shutdown) {
-		swl_debug("Front Buffer: %d Emit\n", output->front_buffer);
 		wl_signal_emit(&output->common.frame, output);
 
 		if(drmModePageFlip(fd, output->original_crtc->crtc_id, 
@@ -437,7 +385,7 @@ int swl_drm_readable(int fd, uint32_t mask, void *data) {
 	ev.version = 2;
 	ev.page_flip_handler = modeset_page_flip_event;
 
-	swl_error("Drm_hande_event: %d\n", drmHandleEvent(fd, &ev));
+	drmHandleEvent(fd, &ev);
 	
 	return 0;
 }
@@ -536,6 +484,9 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 	wl_signal_init(&drm->common.new_output);
 	/*Create A renderer for this backend*/
 	drm->renderer = swl_egl_renderer_create_by_fd(drm->fd);
+	if(drm->renderer == NULL) {
+		return NULL;
+	}
 
 	drm->activate.notify = swl_drm_activate;
 	drm->deactivate.notify = swl_drm_deactivate;

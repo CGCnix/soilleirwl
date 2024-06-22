@@ -53,9 +53,47 @@ typedef struct swl_egl_renderer {
 	struct wl_list targets;
 } swl_egl_renderer_t;
 
-
 int swl_egl_ext_present(const char *extensions, const char *desired) {
 	return strstr(extensions, desired) ? 1 : 0;
+}
+
+int swl_gl_ext_present(const GLubyte *extensions, const char *desired) {
+	return strstr((const char*)extensions, desired) ? 1 : 0;
+}
+
+
+uint32_t swl_egl_msgtype_to_log_level(EGLint type) {
+	switch(type) {
+		case EGL_DEBUG_MSG_ERROR_KHR:
+		case EGL_DEBUG_MSG_CRITICAL_KHR:
+			return SWL_LOG_ERROR;
+		case EGL_DEBUG_MSG_WARN_KHR: return SWL_LOG_WARN;
+		case EGL_DEBUG_MSG_INFO_KHR: return SWL_LOG_INFO;
+		default: return SWL_LOG_INFO;
+	}
+}
+
+void swl_egl_debug_log(EGLenum error, const char *cmd, EGLint msg_type,
+		EGLLabelKHR thread, EGLLabelKHR object, const char *message) {
+	uint32_t level = swl_egl_msgtype_to_log_level(msg_type);
+
+	swl_log(level, __LINE__, __FILE__, "%d(%p) %p\n", error, cmd, message);
+}
+
+uint32_t swl_gl_severity_to_log_level(GLenum severity) {
+	switch(severity) {
+		case GL_DEBUG_SEVERITY_HIGH_KHR: return SWL_LOG_ERROR;
+		case GL_DEBUG_SEVERITY_MEDIUM_KHR: return SWL_LOG_WARN;
+		case GL_DEBUG_SEVERITY_LOW_KHR: return SWL_LOG_DEBUG;
+		case GL_DEBUG_SEVERITY_NOTIFICATION_KHR: return SWL_LOG_INFO;
+		default: return SWL_LOG_INFO;
+	}
+}
+
+void swl_gl_debug_callback(GLenum source, GLenum type, GLuint id,
+		GLenum severity, GLsizei length, const GLchar *message, const void *user_data) {
+	uint32_t level = swl_gl_severity_to_log_level(severity);
+	swl_log(level, __LINE__, __FILE__, "%d %d %d %s\n", source, type, id, message);
 }
 
 GLuint swl_egl_compile_shader(GLenum type, const char *src) {
@@ -146,25 +184,77 @@ void swl_egl_create_shader(swl_egl_renderer_t *renderer) {
 
 int swl_egl_check_client_ext() {
 	const char *extension = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
-	
+	if(extension == NULL) {
+		swl_debug("No EGL Client Extensions present\n");
+		return 1;
+	}
+
+	swl_info("EGL Client Extensions: %s\n", extension);
+	/*We should really do some fallback for now this works*/
+	if(!swl_egl_ext_present(extension, "EGL_KHR_debug")) {
+		swl_warn("Error %s not supported\n", "EGL_KHR_debug");
+		return 1;
+	}
 	if(!swl_egl_ext_present(extension, "EGL_EXT_device_enumeration")) {
-		printf("Error %s not supported\n", "EGL_EXT_device_enumeration");
+		swl_warn("Error %s not supported\n", "EGL_EXT_device_enumeration");
 		return 1;
 	}
 	if(!swl_egl_ext_present(extension, "EGL_EXT_platform_base")) {
-		printf("Error %s not supported\n", "EGL_EXT_platform_base");
+		swl_warn("Error %s not supported\n", "EGL_EXT_platform_base");
 		return 1;
 	}
 	if(!swl_egl_ext_present(extension, "EGL_EXT_client_extensions")) {
-		printf("Error %s not supported\n", "EGL_EXT_client_extensions");
+		swl_warn("Error %s not supported\n", "EGL_EXT_client_extensions");
 		return 1;
 	}
 	if(!swl_egl_ext_present(extension, "EGL_EXT_device_query")) {
-		printf("Error %s not supported\n", "EGL_EXT_device_query");
+		swl_warn("Error %s not supported\n", "EGL_EXT_device_query");
 		return 1;
 	}
 	if(!swl_egl_ext_present(extension, "EGL_EXT_platform_device")) {
-		printf("Error %s not supported\n", "EGL_EXT_platform_device");
+		swl_warn("Error %s not supported\n", "EGL_EXT_platform_device");
+		return 1;
+	}
+	
+	return 0;
+}
+
+int swl_egl_check_display_ext(EGLDisplay *display) {
+	const char *extension = eglQueryString(display, EGL_EXTENSIONS);
+	if(extension == NULL) {
+		swl_debug("No EGL Display Extensions present\n");
+		return 1;
+	}
+
+	swl_info("EGL Display Extensions: %s\n", extension);
+
+	if(!swl_egl_ext_present(extension, "EGL_EXT_image_dma_buf_import")) {
+		swl_error("Error %s not supported\n", "EGL_EXT_image_dma_buf_import");
+		return 1;
+	}
+	if(!swl_egl_ext_present(extension, "EGL_KHR_image_base")) {
+		swl_error("Error %s not supported\n", "EGL_KHR_image_base");
+		return 1;
+	}
+	
+	return 0;
+}
+
+int swl_gl_check_ext() {
+	const GLubyte *extension = glGetString(GL_EXTENSIONS);// eglQueryString(display, EGL_EXTENSIONS);
+	if(extension == NULL) {
+		swl_debug("No GLes Extensions present\n");
+		return 1;
+	}
+
+	swl_info("GLes Extensions: %s\n", extension);
+
+	if(!swl_gl_ext_present(extension, "GL_OES_EGL_image")) {
+		swl_error("Error %s not supported\n", "glEGLImageTargetRenderbufferStorageOES");
+		return 1;
+	}
+	if(!swl_gl_ext_present(extension, "GL_KHR_debug")) {
+		swl_error("Error %s not supported\n", "GL_KHR_debug");
 		return 1;
 	}
 	
@@ -223,13 +313,6 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 		target->output = drm_output;
 		for(uint32_t buf = 0; buf < 2; ++buf) {
 			drmPrimeHandleToFD(drm_output->drm_fd, drm_output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
-			if(drm_output->drm_fd != egl->drmfd) {
-				uint32_t handle = 0;
-				drmPrimeFDToHandle(egl->drmfd, dmabuf, &handle);
-				swl_debug("Imported buffer %d into render GPU with handle %d %m\n", dmabuf, handle);
-				drmPrimeHandleToFD(egl->drmfd, handle, DRM_CLOEXEC, &dmabuf);	
-			}
-			swl_debug("dma buf %d %d\n", egl->drmfd, dmabuf);	
 			target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, drm_output->buffer[buf].height,
 			drm_output->buffer[buf].width, drm_output->buffer[buf].pitch, 0);
 
@@ -263,7 +346,6 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 void swl_egl_begin(swl_renderer_t *renderer) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)renderer;
 	uint32_t front = egl->current->output->front_buffer;
-	swl_debug("Render Front Buffer: %d\n", front);
 	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 			egl->ctx);
 	glBindFramebuffer(GL_FRAMEBUFFER, egl->current->fbo[front]);
@@ -396,13 +478,21 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	EGLDeviceEXT *devices, preffered;
 	EGLint dev_count, dev, major, minor, ctx_attributes[3];
 	const char *egl_dev_string;
+	EGLAttrib debug_attr[] = { EGL_DEBUG_MSG_INFO_KHR, EGL_TRUE, EGL_NONE };
 
+	/*exit if extensions needed don't exist*/
 	if(swl_egl_check_client_ext()) {
-		printf("Required Client extensions missing\n");
+		swl_error("Required Client extensions missing\n");
 		return NULL;
 	}
+	
+	PFNEGLDEBUGMESSAGECONTROLKHRPROC eglDebugMessageControl = (PFNEGLDEBUGMESSAGECONTROLKHRPROC)eglGetProcAddress("eglDebugMessageControlKHR");
+	
+	eglDebugMessageControl(swl_egl_debug_log, debug_attr);
+	
 	egl = calloc(1, sizeof(*egl));
-
+	
+	/*Setup function pointers*/
 	egl->common.begin = swl_egl_begin;
 	egl->common.attach_output = swl_egl_output_attach;
 	egl->common.clear = swl_egl_clear;
@@ -412,17 +502,24 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	egl->common.draw_texture = swl_egl_draw_texture;
 	wl_list_init(&egl->targets);
 
+	/*Get client extension Functions*/
 	egl->funcs.eglQueryDevicesEXT = (PFNEGLQUERYDEVICESEXTPROC) eglGetProcAddress("eglQueryDevicesEXT");
 	egl->funcs.eglQueryDeviceStringEXT = (PFNEGLQUERYDEVICESTRINGEXTPROC) eglGetProcAddress("eglQueryDeviceStringEXT");
 	egl->funcs.EGLGetPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC) eglGetProcAddress("eglGetPlatformDisplayEXT");
 
 	drmGetDevice(drm_fd, &drm_dev);
-	
-	egl->funcs.eglQueryDevicesEXT(0, NULL, &dev_count);
+	dev_count = 0;
+	if(egl->funcs.eglQueryDevicesEXT(0, NULL, &dev_count) == EGL_FALSE) {
+		swl_error("Query devices call 1 failed\n");
+		return NULL;
+	}
 
 	devices = calloc(dev_count, sizeof(EGLDeviceEXT));
-	egl->funcs.eglQueryDevicesEXT(dev_count, devices, &dev_count);
-	
+	if(egl->funcs.eglQueryDevicesEXT(dev_count, devices, &dev_count) == EGL_FALSE) {
+		swl_error("Query devices call 2 failed\n");
+		return NULL;
+	}
+		
 	for(dev = 0; dev < dev_count; dev++) {
 		egl_dev_string = egl->funcs.eglQueryDeviceStringEXT(devices[dev], EGL_DRM_DEVICE_FILE_EXT);
 
@@ -442,18 +539,37 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	ctx_attributes[1] = 2;
 	ctx_attributes[2] = EGL_NONE;
 
+	/*Check for the Display Extensions*/
+	if(swl_egl_check_display_ext(egl->display)) {
+		swl_error("Required EGL display extensions missing\n");
+		return NULL;
+	}
+
 	egl->ctx = eglCreateContext(egl->display, EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, ctx_attributes);
 	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);	
 	
-	/*Check for the client Extensions*/
-	const char *extension = eglQueryString(egl->display, EGL_EXTENSIONS);
-	egl->funcs.EGLCreateImageKHR = (void*) eglGetProcAddress("eglCreateImageKHR");
-	egl->funcs.EGLImageTargetRenderbufferStorageOES = (void *) eglGetProcAddress("glEGLImageTargetRenderbufferStorageOES");
-	if(!swl_egl_ext_present(extension, "EGL_EXT_image_dma_buf_import")) {
-		printf("Error %s not supported\n", "EGL_EXT_image_dma_buf_import");
+	swl_debug("GLES2 Version: %s\n", glGetString(GL_VERSION));
+	swl_debug("GLES2 Vendor: %s\n", glGetString(GL_VENDOR));
+	swl_debug("GLES2 Renderer: %s\n", glGetString(GL_RENDERER));
+	
+	/*Check for the GLES Extensions*/
+	if(swl_gl_check_ext()) {
+		swl_error("Required GLes extensions missing\n");
 		return NULL;
 	}
+
+	const char *extension = eglQueryString(egl->display, EGL_EXTENSIONS);
+	egl->funcs.EGLCreateImageKHR = (void*) eglGetProcAddress("eglCreateImageKHR");
+
+
+	egl->funcs.EGLImageTargetRenderbufferStorageOES = (void *) eglGetProcAddress("glEGLImageTargetRenderbufferStorageOES");
+	PFNGLDEBUGMESSAGECALLBACKKHRPROC debug_callback = (PFNGLDEBUGMESSAGECALLBACKKHRPROC) eglGetProcAddress("glDebugMessageCallbackKHR");
+	PFNGLDEBUGMESSAGECONTROLKHRPROC debug_message_control = (PFNGLDEBUGMESSAGECONTROLKHRPROC) eglGetProcAddress("glDebugMessageControlKHR");
 	
+	debug_callback(swl_gl_debug_callback, NULL);
+	
+	glEnable(GL_DEBUG_OUTPUT_KHR);
+	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_KHR);
 	swl_egl_create_shader(egl);
 	return (swl_renderer_t*)egl;
 }

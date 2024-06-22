@@ -71,13 +71,12 @@ int swl_libinput_open_res(const char *path, int flags, void *data) {
 	device->dev_id = libinput->session->open_dev(libinput->session, path, &device->fd);
 	wl_list_insert(&libinput->devices, &device->link);
 	
+	/*This can happen if the device no longer exists*/
 	if(device->dev_id < 0) {
 		free(device);
 		wl_display_terminate(libinput->display);
 		return -1;
 	}
-
-	swl_info("%s %d\n", path, device->fd);
 
 	return device->fd;
 }
@@ -85,8 +84,6 @@ int swl_libinput_open_res(const char *path, int flags, void *data) {
 void swl_libinput_close_res(int fd, void *data) {
 	swl_libinput_backend_t *libinput = data;
 	swl_libinput_device_t *device = swl_libinput_get_device_by_fd(&libinput->devices, fd);
-
-	swl_info("%d\n", device->fd);
 
 	libinput->session->close_dev(libinput->session, device->dev_id);
 	close(device->fd);
@@ -107,8 +104,6 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 	libinput_dispatch(libinput->ctx);
 
 	while((event = libinput_get_event(libinput->ctx))) {
-		
-
 
 		if(libinput_event_get_type(event) == LIBINPUT_EVENT_KEYBOARD_KEY) {
 			keyboard = libinput_event_get_keyboard_event(event);
