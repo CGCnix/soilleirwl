@@ -9,6 +9,7 @@ protocol_dump
 output
 image.png
 log
+bg-set
 swl-screenshot-client.c
 swl-screenshot-client.h
 swl-screenshot-server.h
