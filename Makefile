@@ -7,7 +7,7 @@ COBJS=src/egl.o src/input/libinput.o src/swl-screenshot-server.o src/drm/drm.o s
 CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm glesv2 egl`
 CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl glesv2`
 
-all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot bg-set
+all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot ipc-cli
 
 ipc-cli: ./tests/ipc.c
 	$(CC) ./tests/ipc.c `pkg-config --cflags libdrm libpng` -o $@ `pkg-config --libs libpng`

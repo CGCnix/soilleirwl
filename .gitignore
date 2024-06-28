@@ -9,6 +9,7 @@ protocol_dump
 output
 image.png
 log
+ipc-cli
 bg-set
 swl-screenshot-client.c
 swl-screenshot-client.h
