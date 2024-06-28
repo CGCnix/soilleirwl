@@ -171,7 +171,7 @@ void wl_registry_global(void *data, struct wl_registry *registry, uint32_t name,
 		wl_output_add_listener(output->output, &output_listen, output);
 		wl_list_insert(&client->outputs, &output->link);	
 	} else if(strcmp(zswl_screenshot_manager_interface.name, interface) == 0) {
-		client->manager = wl_registry_bind(registry, name, &zswl_screenshot_manager_interface, version);
+			client->manager = wl_registry_bind(registry, name, &zswl_screenshot_manager_interface, version);
 	} else if(strcmp(wl_shm_interface.name, interface) == 0) {
 		client->shm = wl_registry_bind(registry, name, &wl_shm_interface, version);
 	}
