@@ -3,15 +3,14 @@
 include config.mk
 
 TARGET=soilleir
-COBJS=src/egl.o src/input/libinput.o src/swl-screenshot-server.o src/drm/drm.o src/hotplug/udev.o src/sessions/seatd.o src/xdg-shell-server.o tests/server.o src/logger.o
-CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm gl egl`
-CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl gl`
+COBJS=src/egl.o src/input/libinput.o src/swl-screenshot-server.o src/drm/drm.o src/hotplug/udev.o src/sessions/seatd.o src/xdg-shell-server.o tests/server.o src/logger.o src/interfaces/swl_compositor.o src/interfaces/swl_data_dev_man.o
+CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm glesv2 egl`
+CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl glesv2`
 
+all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot ipc-cli
 
-all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot bg-set
-
-bg-set: ./tests/ipc-bg.c
-	$(CC) ./tests/ipc-bg.c `pkg-config --cflags libdrm libpng` -o $@ `pkg-config --libs libpng`
+ipc-cli: ./tests/ipc.c
+	$(CC) ./tests/ipc.c `pkg-config --cflags libdrm libpng` -o $@ `pkg-config --libs libpng`
 
 tests/swl-screenshot-client.h: ./protocols/swl-screenshot-unstable-v1.xml
 	$(WAYLAND_SCANNER) client-header  ./protocols/swl-screenshot-unstable-v1.xml $@
@@ -37,8 +36,8 @@ src/xdg-shell-server.c:
 .c.o:
 	$(CC) -c $(CLIBSFLAGS) $(CFLAGS) -o $@ $<
 
-$(TARGET): $(COBJS) tests/server.c
+$(TARGET): $(INCLUDES) $(COBJS) tests/server.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(COBJS) $(CLIBS)
 
 clean:
-	rm -rf src/xdg-shell.h src/xdg-shell.c $(COBJS) $(TARGET)
+	rm -rf bg-set screenshot src/xdg-shell.h src/xdg-shell.c $(COBJS) $(TARGET)

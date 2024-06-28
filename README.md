@@ -16,23 +16,30 @@ All keybindings are combined with the modifiers `CTRL+ALT`
 - Tab (Swap active client)
 - Arrow keys move client 10px that direction (NOTE: this code assumes 1920x1080 size)
 
-
 ### Problems in the current build
-- TTY is left in text mode
-- Swapping TTYs while running will cause an error as no TTY swap code is present.
-- Only one output and GPU is supported
-- Multiple clients don't work
-- Everything is software rendered.
+- Only one GPU is supported
 - more...
 
 ### If you do test:
 Please do report any issues you find especially if you have access to hardware I don't. i.e. RPIs, VisionFives, Intel, more AMDGPUs and more Nouveau/Nvidia Prop driver GPUs.
+
+## Filling out an issue report:
+if you fill out an issue on github please use the following format or atleast something close to it depending on the issue.
+Title: <Issue Description> On <Hardware>.
 
 ## Deps:
 ### Required:
 - libwayland-server
 - libxkbcommon
 - libdrm
+- libseat
+- libinput
+- libudev/libudev-zero(Or just any compat lib)
+- egl & gles
 
 ### Optional:
+
+
+## Debugging:
+If you are testing and are running into errors you can debug with gdb or lldb over an ssh connection or can check the log file at `/tmp/soilleir` for the test server.
 

@@ -1,11 +1,13 @@
 #pragma once
 
+#include <soilleirwl/renderer.h>
 #include <wayland-server-core.h>
 #include <soilleirwl/session.h>
 
 typedef struct swl_display_backend {
 	struct wl_signal new_output;
 	int (*get_drm_fd)(struct swl_display_backend *drm);
+	swl_renderer_t *(*get_backend_renderer)(struct swl_display_backend *drm);
 } swl_display_backend_t;
 
 

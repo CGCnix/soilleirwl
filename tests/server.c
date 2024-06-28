@@ -1,7 +1,7 @@
 #include "../src/xdg-shell-server.h"
 #include "../src/swl-screenshot-server.h"
-#include "drm_fourcc.h"
 #include "soilleirwl/display.h"
+#include "soilleirwl/interfaces/swl_compositor.h"
 #include <errno.h>
 #include <soilleirwl/session.h>
 #include <soilleirwl/input.h>
@@ -21,6 +21,9 @@
 #include <wayland-server.h>
 #include <wayland-util.h>
 
+#include <soilleirwl/interfaces/swl_surface.h>
+#include <soilleirwl/interfaces/swl_compositor.h>
+
 #include <xkbcommon/xkbcommon.h>
 
 #include <stdlib.h>
@@ -32,40 +35,38 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 
-
-void malloc_debug_info();
-
 #define MODIFER_CTRL 4
 #define MODIFER_ALT 8
 
 enum {
-	SERVER_ADD_KEYBIND,
+	SERVER_CHG_KEYBMAP,
 	SERVER_SET_BACKGRN,
 };
 
 typedef struct{
 	uint32_t opcode;
 	uint32_t len;
-} server_ipc_msg_t;
+}__attribute__((packed)) soilleir_ipc_msg_t;
+
+typedef struct {
+	uint32_t opcode;
+	uint32_t len;
+	int32_t height, width, stride, size;
+	uint32_t depth;
+	uint32_t format;
+}__attribute__((packed)) soilleir_ipc_background_image;
+
+typedef struct {
+	uint32_t opcode;
+	uint32_t len;
+	uint16_t layout;
+}__attribute__((packed)) soilleir_ipc_change_keymap;
 
 typedef struct {
 	int fd;
 	int lock;
 	struct wl_event_source *source;
 } server_ipc_sock;
-
-typedef struct {
-	struct wl_resource *surface;
-	struct wl_resource *buffer;
-	struct wl_resource *shell_surface;
-	struct wl_resource *callback;
-	/*Old texture;
-	 *swl_output_texture_t texture;
-	 */
-
-	swl_texture_t *texture;
-	int32_t x, y;
-} swl_surface_t;
 
 typedef struct swl_client {
 	struct wl_list surfaces;
@@ -89,9 +90,7 @@ typedef struct swl_seat {
 	struct xkb_state *state;
 } swl_seat_t;
 
-
 typedef struct swl_xdg_toplevel swl_xdg_toplevel_t;
-
 
 typedef struct {
 	struct wl_display *display;
@@ -160,160 +159,6 @@ static void zswl_screenshot_manager_bind(struct wl_client *client, void *data,
 	
 	resource = wl_resource_create(client, &zswl_screenshot_manager_interface, 1, id);
 	wl_resource_set_implementation(resource, &zswl_screenshot_impl, data, NULL);
-}
-
-void wl_surface_destroy(struct wl_client *client, struct wl_resource *resource) {
-}
-
-void wl_surf_destroy(struct wl_resource *resource) {
-	swl_surface_t *swl_surface = wl_resource_get_user_data(resource);
-	/*
-	if(swl_surface->texture.data) {
-		free(swl_surface->texture.data);
-	}
-	*/
-	free(swl_surface);
-}
-
-swl_output_t *soilleir_get_output_for_client(struct wl_list *list, uint32_t x, uint32_t y) {
-	soilleir_output_t *output;
-	wl_list_for_each(output, list, link) {
-		if(x >= output->common->x && y >= output->common->y && 
-				x <= output->common->x + output->common->mode.width &&
-				y <= output->common->y + output->common->mode.height) {
-			return output->common;
-		}
-	}
-	return NULL;
-}
-
-void wl_surface_commit(struct wl_client *client, struct wl_resource *resource) {
-	struct wl_shm_buffer *buffer;
-	swl_surface_t *surface = wl_resource_get_user_data(resource);
-	swl_xdg_surface_t *xdg_surface = wl_resource_get_user_data(surface->shell_surface);
-	uint32_t width, height, format;	
-	void *data;
-
-	swl_output_t *output = soilleir_get_output_for_client(&xdg_surface->backend->outputs, surface->x, surface->y);
-	if(output == NULL) { /*This client is not on the screen*/
-		output = soilleir_get_output_for_client(&xdg_surface->backend->outputs, 0, 0);
-	}
-	if(!surface->buffer) {
-		xdg_surface_send_configure(surface->shell_surface, 0);
-		return;
-	}
-
-	if(surface->texture) {
-		output->renderer->destroy_texture(output->renderer, surface->texture);
-		surface->texture = NULL;
-	}
-
-	buffer = wl_shm_buffer_get(surface->buffer);
-	width = wl_shm_buffer_get_width(buffer);
-	height = wl_shm_buffer_get_height(buffer);
-	data = wl_shm_buffer_get_data(buffer);
-	
-	output->renderer->begin(output->renderer);
-	surface->texture = output->renderer->create_texture(output->renderer, width, height, 0, data);
-
-	output->renderer->end(output->renderer);
-	wl_buffer_send_release(surface->buffer);
-	if(surface->callback) {
-		wl_callback_send_done(surface->callback, 0);
-		wl_resource_destroy(surface->callback);
-		surface->callback = NULL;
-	}
-}
-
-void wl_surface_set_opaque_region(struct wl_client *client, 
-		struct wl_resource *resource, struct wl_resource *region) {
-
-}
-
-void wl_surface_set_input_region(struct wl_client *client, 
-		struct wl_resource *resource, struct wl_resource *region) {
-
-}
-
-void wl_surface_frame(struct wl_client *client, struct wl_resource *resource, uint32_t id) {
-	swl_surface_t *surface = wl_resource_get_user_data(resource);
-
-	struct wl_resource *callback = wl_resource_create(client, &wl_callback_interface, 1, id);
-	wl_resource_set_implementation(callback, NULL, NULL, NULL);
-
-	surface->callback = callback;
-}
-
-void wl_surface_set_buffer_scale(struct wl_client *client, 
-		struct wl_resource *resource, int32_t scale) {
-
-}
-
-void wl_surface_set_buffer_transform(struct wl_client *client, struct wl_resource *resource, int32_t transform) {
-
-}
-
-void wl_surface_attach(struct wl_client *client, struct wl_resource *resource,
-		struct wl_resource *buffer, int32_t x, int32_t y) {
-	swl_surface_t *surface = wl_resource_get_user_data(resource);
-	surface->buffer = buffer;
-}
-
-void wl_surface_damage(struct wl_client *client, struct wl_resource *resource,
-		int32_t x, int32_t y, int32_t width, int32_t height) {
-
-}
-
-void wl_surface_damage_buffer(struct wl_client *client, struct wl_resource *resource,
-		int32_t x, int32_t y, int32_t width, int32_t height) {
-
-}
-
-void wl_surface_offset(struct wl_client *client, struct wl_resource *resource,
-		int32_t x, int32_t y) {
-
-}
-
-static const struct wl_surface_interface surface_implementation = {
-		.set_opaque_region = wl_surface_set_opaque_region,
-		.damage = wl_surface_damage,
-		.damage_buffer = wl_surface_damage_buffer,
-		.offset = wl_surface_offset,
-		.set_buffer_scale = wl_surface_set_buffer_scale,
-		.attach = wl_surface_attach,
-		.frame = wl_surface_frame,
-		.commit = wl_surface_commit,
-		.destroy = wl_surface_destroy,
-		.set_input_region = wl_surface_set_input_region,
-		.set_buffer_transform = wl_surface_set_buffer_transform,
-};
-
-static void wl_compositor_create_surface(struct wl_client *client, struct wl_resource *compositor, uint32_t id) {
-	struct wl_resource *surface;
-	swl_surface_t *swl_surface = calloc(1, sizeof(swl_surface_t));
-	
-	surface = wl_resource_create(client, &wl_surface_interface, 6, id);
-	wl_resource_set_implementation(surface, &surface_implementation, swl_surface, wl_surf_destroy);
-	swl_surface->surface = surface;
-}
-
-static void wl_compositor_create_region(struct wl_client *client, struct wl_resource *resource, uint32_t id) {
-	wl_client_post_implementation_error(client, "This isn't implemented\n");
-}
-
-static const struct wl_compositor_interface compositor_interface = {
-	.create_region = wl_compositor_create_region,
-	.create_surface = wl_compositor_create_surface,
-};
-
-static void wl_compositor_bind(struct wl_client *client, void *data,
-    uint32_t version, uint32_t id) {
-	struct wl_resource *resource;
-	
-
-
-	resource = wl_resource_create(client, &wl_compositor_interface, version, id);
-	wl_resource_set_implementation(resource, &compositor_interface, data, NULL);
 }
 
 void swl_xdg_toplevel_destroy(struct wl_client *client, struct wl_resource *toplevel) {
@@ -460,8 +305,14 @@ void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_
 	struct wl_resource *resource;
 	struct swl_client *swl_client;
 	swl_xdg_toplevel_t *swl_xdg_toplevel = calloc(1, sizeof(swl_xdg_toplevel_t));
-	
+	soilleir_server_t *server;
+	struct wl_array keys;
+	wl_array_init(&keys);
+
+
 	swl_xdg_toplevel->swl_xdg_surface = wl_resource_get_user_data(xdg_surface);
+
+	server = swl_xdg_toplevel->swl_xdg_surface->backend;
 
 	resource = wl_resource_create(client, &xdg_toplevel_interface, 6, id);
 	wl_resource_set_implementation(resource, &xdg_toplevel_impl, swl_xdg_toplevel, swl_xdg_toplevel_handle_destroy);
@@ -521,7 +372,7 @@ void xdg_wm_base_create_surface(struct wl_client *client, struct wl_resource *re
 	swl_xdg_surface->backend = wl_resource_get_user_data(resource);
 
 	xdg_surface_resource = wl_resource_create(client, &xdg_surface_interface, 6, id);
-	swl_surface->shell_surface = xdg_surface_resource;
+	swl_surface->role = xdg_surface_resource;
 	wl_resource_set_implementation(xdg_surface_resource, &xdg_surface_impl, swl_xdg_surface, xdg_surface_handle_destroy);
 }
 
@@ -558,6 +409,10 @@ void swl_switch_client(soilleir_server_t *server) {
 	swl_xdg_toplevel_t *toplevel;
 
 	bool next = false;
+	
+	if(wl_list_empty(&server->clients)) {
+		return;
+	}
 
 	wl_list_for_each(clients, &server->clients, link) {
 		if(next) {
@@ -576,6 +431,7 @@ void swl_switch_client(soilleir_server_t *server) {
 	wl_list_for_each(clients, &server->clients, link) {
 		wl_list_for_each(toplevel, &clients->surfaces, link) {
 			server->active = toplevel;
+
 			return;
 		}
 	}
@@ -586,7 +442,14 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 	soilleir_server_t *server = wl_container_of(seat, server, seat);
 	swl_key_event_t *key = data;
 	xkb_keysym_t sym;
+	struct wl_array keys;
+	wl_array_init(&keys);
 	key->key += 8;
+	if(server->active && server->active->client->keyboard) {
+		wl_keyboard_send_enter(server->active->client->keyboard, 1, server->active->swl_xdg_surface->swl_surface->resource, &keys);
+	}
+	
+
 	sym = xkb_state_key_get_one_sym(seat->state, key->key);
 	if(xkb_state_serialize_mods(seat->state, XKB_STATE_MODS_DEPRESSED) == (MODIFER_ALT | MODIFER_CTRL) &&
 			key->state) {
@@ -594,7 +457,8 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 			case XKB_KEY_Return:
 				if(fork() == 0) {
 					/*TODO swap to magma term*/
-					execlp("havoc", "havoc", NULL);
+					execlp("foot", "foot", NULL);
+					swl_error("Spawning food failed: %m\n");
 					exit(1);
 					return;
 				}
@@ -604,7 +468,13 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 				return;
 				break;
 			case XKB_KEY_Tab:
+				if(server->active && server->active->client->keyboard) {
+					wl_keyboard_send_leave(server->active->client->keyboard, 1, server->active->swl_xdg_surface->swl_surface->resource);
+				}
 				swl_switch_client(server);
+				if(server->active && server->active->client->keyboard) {
+					wl_keyboard_send_enter(server->active->client->keyboard, 1, server->active->swl_xdg_surface->swl_surface->resource, &keys);
+				}
 				break;
 			case XKB_KEY_XF86Switch_VT_1:
 			case XKB_KEY_XF86Switch_VT_2:
@@ -651,8 +521,15 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 
 
 	if(server->active && server->active->client->keyboard) {
-		wl_keyboard_send_modifiers(server->active->client->keyboard, 0, depressed, 0, 0, 0);
-		wl_keyboard_send_key(server->active->client->keyboard, 0, 0, key->key - 8, key->state);
+		swl_xdg_toplevel_t *toplevel;
+		struct wl_array array;
+		wl_array_init(&array);
+		wl_list_for_each(toplevel, &server->active->client->surfaces, link) {
+			break;
+		}
+		wl_keyboard_send_modifiers(server->active->client->keyboard, 1, depressed, 0, 0, 0);
+		wl_keyboard_send_key(server->active->client->keyboard, 1, 0, key->key - 8, key->state);
+		wl_keyboard_send_leave(server->active->client->keyboard, 1, server->active->swl_xdg_surface->swl_surface->resource);
 	}
 	
 }
@@ -660,6 +537,8 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 void wl_seat_get_keyboard(struct wl_client *client, struct wl_resource *resource, uint32_t id) {
 	struct wl_resource *keyboard;
 	swl_client_t *swl_client;
+	struct wl_array keys;
+	wl_array_init(&keys);
 	soilleir_server_t *backend = wl_resource_get_user_data(resource);
 	char tmp[] = "/tmp/swlkeyfd-XXXXXX";
 
@@ -682,8 +561,25 @@ void wl_seat_get_keyboard(struct wl_client *client, struct wl_resource *resource
 	swl_client->keyboard = keyboard;
 }
 
-void wl_seat_get_pointer(struct wl_client *client, struct wl_resource *resource, uint32_t id) {
+static void wl_pointer_release(struct wl_client *client, struct wl_resource *resource) {
 
+}
+
+static void wl_pointer_set_cur(struct wl_client *client, struct wl_resource *resource, uint32_t serial, struct wl_resource *surface, int32_t x, int32_t y) {
+
+}
+
+static const struct wl_pointer_interface wl_pointer_impl = {
+	.release = wl_pointer_release,
+	.set_cursor = wl_pointer_set_cur,
+};
+
+void wl_seat_get_pointer(struct wl_client *client, struct wl_resource *resource, uint32_t id) {
+	struct wl_resource *pointer;
+	
+	pointer = wl_resource_create(client, &wl_pointer_interface, 9, id);
+	wl_resource_set_implementation(pointer, &wl_pointer_impl, NULL, NULL);
+	
 }
 
 void wl_seat_get_touch(struct wl_client *client, struct wl_resource *resource, uint32_t id) {
@@ -725,18 +621,14 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
 		wl_list_for_each(toplevel, &client->surfaces, link) {
-			if(soilleir_get_output_for_client(&server->outputs, toplevel->swl_xdg_surface->swl_surface->x, toplevel->swl_xdg_surface->swl_surface->y) == output) {
-
-				output->renderer->draw_texture(output->renderer, toplevel->swl_xdg_surface->swl_surface->texture, toplevel->swl_xdg_surface->swl_surface->x - output->x, toplevel->swl_xdg_surface->swl_surface->y - output->y);
-			}
+				toplevel->swl_xdg_surface->swl_surface->renderer->draw_texture(toplevel->swl_xdg_surface->swl_surface->renderer, toplevel->swl_xdg_surface->swl_surface->texture, toplevel->swl_xdg_surface->swl_surface->x - output->x, toplevel->swl_xdg_surface->swl_surface->y - output->y);
 		}
 	}
+
 	if(soil_output->server->active) {
 	wl_list_for_each(toplevel, &soil_output->server->active->client->surfaces, link) {
-			if(soilleir_get_output_for_client(&server->outputs, toplevel->swl_xdg_surface->swl_surface->x, toplevel->swl_xdg_surface->swl_surface->y) == output) {
-				output->renderer->draw_texture(output->renderer, toplevel->swl_xdg_surface->swl_surface->texture, toplevel->swl_xdg_surface->swl_surface->x - output->x, toplevel->swl_xdg_surface->swl_surface->y - output->y);
+				toplevel->swl_xdg_surface->swl_surface->renderer->draw_texture(toplevel->swl_xdg_surface->swl_surface->renderer, toplevel->swl_xdg_surface->swl_surface->texture, toplevel->swl_xdg_surface->swl_surface->x - output->x, toplevel->swl_xdg_surface->swl_surface->y - output->y);
 			}
-	}
 	}
 	output->renderer->end(output->renderer);
 }
@@ -764,19 +656,83 @@ static void soilleir_new_output(struct wl_listener *listener, void *data) {
 	output->renderer->attach_output(output->renderer, output);
 }
 
+int soilleir_ipc_set_bgimage(struct msghdr *msg, soilleir_server_t *soilleir) {
+	soilleir_ipc_background_image *image = msg->msg_iov[0].iov_base;
+	int recvfd = -1;
+  struct cmsghdr *cmptr;
 
-typedef struct {
-	uint32_t opcode;
-	uint32_t len;
-	int32_t height, width, stride, size;
-	uint32_t depth;
-	uint32_t format;
-}__attribute__((packed)) swl_ipc_background_image;
+	if ((cmptr = CMSG_FIRSTHDR(msg)) != NULL &&
+    cmptr->cmsg_len == CMSG_LEN(sizeof(int))) {
+    if (cmptr->cmsg_level != SOL_SOCKET && cmptr->cmsg_type != SCM_RIGHTS) {
+			swl_error("IPC Client sent a cmsg without SOL_SOCKET or SCM_RIGHTS\n");
+			return 0;
+		}
+		recvfd = *((int *) CMSG_DATA(cmptr));
+	}
+	if(recvfd < 0) {
+		swl_error("IPC recv fd for bg image invalid\n");
+		return 0;
+	}
+
+	soilleir->bg = mmap(0, image->size, PROT_READ | PROT_WRITE, MAP_SHARED, recvfd, 0);
+	close(recvfd);
+	soilleir_output_t *output;
+	wl_list_for_each(output, &soilleir->outputs, link) {
+		output->common->background = output->common->renderer->create_texture(output->common->renderer, image->width, image->height, image->format, soilleir->bg);
+	}
+
+	munmap(soilleir->bg, image->size);
+	return 0;	
+}
+
+int soilleir_ipc_chg_keymap(struct msghdr *msg, soilleir_server_t *soilleir) {
+	soilleir_ipc_change_keymap *keymap = msg->msg_iov->iov_base;
+	struct xkb_keymap *xkb_map;
+	struct xkb_state *xkb_state;
+	struct xkb_rule_names names;
+	char layout[3] = { 0 };
+
+	layout[0] = keymap->layout >> 8;
+	layout[1] = keymap->layout & 0xff;
+
+	swl_debug("Layout sent: %s\n", layout);
+
+	names.rules = NULL;
+	names.model = NULL;
+	names.options = NULL;
+	names.variant = NULL;
+	names.layout = layout;
+
+	xkb_map = xkb_keymap_new_from_names(soilleir->seat.xkb, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+	xkb_state = xkb_state_new(xkb_map);
+	/*TODO: I should probably copy the state to the new state but testing fir now*/
+	swl_client_t *client = NULL;
+	wl_list_for_each(client, &soilleir->clients, link) {
+		if(client->keyboard) {
+			char tmp[] = "/tmp/swlkeyfd-XXXXXX";
+			char *map_str = xkb_keymap_get_as_string(xkb_map, XKB_KEYMAP_FORMAT_TEXT_V1);
+			int fd = mkstemp(tmp);
+			ftruncate(fd, strlen(map_str));
+			write(fd, map_str, strlen(map_str));
+			wl_keyboard_send_keymap(client->keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, strlen(map_str));
+			unlink(tmp);
+			close(fd);
+			free(map_str);
+		}
+	}
+
+	xkb_state_unref(soilleir->seat.state);
+	xkb_keymap_unref(soilleir->seat.map);
+
+	soilleir->seat.map = xkb_map;
+	soilleir->seat.state = xkb_state;
+	return 0;
+}
 
 int server_ipc(int32_t fd, uint32_t mask, void *data) {
-	int client;
+	int client, recvfd;
 	soilleir_server_t *soilleir = data;
-	swl_ipc_background_image *image;
+	soilleir_ipc_msg_t *ipcmsg;
 	struct sockaddr addr;
 	socklen_t len = sizeof(addr);
 	client = accept(fd, &addr, &len);
@@ -785,13 +741,9 @@ int server_ipc(int32_t fd, uint32_t mask, void *data) {
     struct cmsghdr    cm;
     char              control[CMSG_SPACE(sizeof(int))];
   } control_un;
-	server_ipc_msg_t mesg;
   struct msghdr msg = { 0 };
   struct iovec iov[1] = { 0 };
 	char buf[4096] = { 0 };
-
-	
-	struct cmsghdr hdr; 
 	
 	msg.msg_control = control_un.control;
 	msg.msg_controllen = sizeof(control_un.control);
@@ -806,29 +758,43 @@ int server_ipc(int32_t fd, uint32_t mask, void *data) {
 		swl_error("Erorr %d %m\n", client);
 		return 0;
 	}
-  struct cmsghdr *cmptr;
-	int recvfd;
-
-	if ((cmptr = CMSG_FIRSTHDR(&msg)) != NULL &&
-    cmptr->cmsg_len == CMSG_LEN(sizeof(int))) {
-    if (cmptr->cmsg_level != SOL_SOCKET && cmptr->cmsg_type != SCM_RIGHTS) {
-			swl_error("IPC Client sent a cmsg without SOL_SOCKET or SCM_RIGHTS\n");
-			return 0;
-		}
-		recvfd = *((int *) CMSG_DATA(cmptr));
+	/*HACK WE KINDA JUST ASSUME WE GOT THE WHOLE MESSAGE*/
+	close(client);
+	ipcmsg = (void*)buf;
+	
+	switch (ipcmsg->opcode) {
+		case SERVER_SET_BACKGRN:
+			return soilleir_ipc_set_bgimage(&msg, soilleir);
+		case SERVER_CHG_KEYBMAP:
+			return soilleir_ipc_chg_keymap(&msg, soilleir);
 	}
-	image = (void*)buf;
 
-	soilleir->bg = mmap(0, image->size, PROT_READ | PROT_WRITE, MAP_SHARED, recvfd, 0);
-	soilleir_output_t *output;
-	wl_list_for_each(output, &soilleir->outputs, link) {
-		output->common->background = output->common->renderer->create_texture(output->common->renderer, image->width, image->height, image->format, soilleir->bg);
-	}
 	return 0;
 }
 
 #define SOILLEIR_IPC_PATH "%s/soil-%d"
 #define SOILLEIR_IPC_LOCK "%s/soil-%d.lock"
+
+int soilleir_ipc_deinit(soilleir_server_t *soilleir) {
+	char lock_addr[256] = { 0 };
+	struct sockaddr_un addr = { 0 };
+	pid_t pid = getpid();
+	const char *xdg_rt_dir = getenv("XDG_RUNTIME_DIR");
+
+	snprintf(addr.sun_path, sizeof(addr.sun_path), SOILLEIR_IPC_PATH, xdg_rt_dir, pid);
+	snprintf(lock_addr, sizeof(lock_addr), SOILLEIR_IPC_LOCK, xdg_rt_dir, pid);
+	
+	wl_event_source_remove(soilleir->ipc.source);
+
+
+	unlink(addr.sun_path);
+	close(soilleir->ipc.fd);	
+	flock(soilleir->ipc.lock, LOCK_UN | LOCK_NB);
+	close(soilleir->ipc.lock);
+	remove(lock_addr);
+	
+	return 0;
+}
 
 int soilleir_ipc_init(soilleir_server_t *soilleir) {
 	char lock_addr[256] = { 0 };
@@ -877,12 +843,14 @@ int soilleir_ipc_init(soilleir_server_t *soilleir) {
 	}
 	loop = wl_display_get_event_loop(soilleir->display);
 	
-	wl_event_loop_add_fd(loop, soilleir->ipc.fd, WL_EVENT_READABLE, server_ipc, soilleir);
+	soilleir->ipc.source = wl_event_loop_add_fd(loop, soilleir->ipc.fd, WL_EVENT_READABLE, server_ipc, soilleir);
 	
 	listen(soilleir->ipc.fd, 128);
 	setenv("SWL_IPC_SOCKET", addr.sun_path, 1);	
 	return 0;
 }
+
+void swl_create_data_dev_man(struct wl_display *display);
 
 int main(int argc, char **argv) {
 	soilleir_server_t soilleir = {0};
@@ -898,13 +866,11 @@ int main(int argc, char **argv) {
 
 	wl_list_init(&soilleir.outputs);
 
-	wl_global_create(soilleir.display, &wl_compositor_interface, 6, soilleir.display, wl_compositor_bind);
 	wl_global_create(soilleir.display, &xdg_wm_base_interface, 6, &soilleir, xdg_wm_base_bind);
 	wl_display_init_shm(soilleir.display);
 	wl_global_create(soilleir.display, &wl_seat_interface,
 			9, &soilleir, wl_seat_bind);
 	wl_global_create(soilleir.display, &zswl_screenshot_manager_interface, 1, NULL, zswl_screenshot_manager_bind);
-
 	soilleir.session = swl_seatd_backend_create(soilleir.display);
 	if(soilleir.session == NULL) {
 		swl_error("Failed to create session\n");
@@ -932,7 +898,7 @@ int main(int argc, char **argv) {
 		return 1;
 	}	
 
-	soilleir.seat.caps = WL_SEAT_CAPABILITY_KEYBOARD;
+	soilleir.seat.caps = WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER;
 	soilleir.seat.seat_name = "seat0";
 	soilleir.seat.xkb = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 	soilleir.seat.map = xkb_keymap_new_from_names(soilleir.seat.xkb, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
@@ -940,18 +906,20 @@ int main(int argc, char **argv) {
 	soilleir.seat.key.notify = wl_seat_key_press;
 	wl_signal_add(&soilleir.input->key, &soilleir.seat.key);
 
+
 	wl_list_init(&soilleir.clients);
 	soilleir.output_listner.notify = soilleir_new_output;
 	wl_signal_add(&soilleir.backend->new_output, &soilleir.output_listner);
-
+	
+	swl_create_compositor(soilleir.display, soilleir.backend->get_backend_renderer(soilleir.backend));
+	swl_create_sub_compositor(soilleir.display);
+	swl_create_data_dev_man(soilleir.display);
+		
 	swl_udev_backend_start(soilleir.dev_man);
 	swl_drm_backend_start(soilleir.backend);
 	wl_display_run(soilleir.display);
 
 	wl_display_destroy_clients(soilleir.display);
-
-
-	swl_drm_backend_stop(soilleir.backend);
 	swl_drm_backend_destroy(soilleir.backend, soilleir.session);
 
 	swl_libinput_backend_destroy(soilleir.input);
@@ -962,6 +930,8 @@ int main(int argc, char **argv) {
 	xkb_keymap_unref(soilleir.seat.map);
 	xkb_context_unref(soilleir.seat.xkb);
 	
+	soilleir_ipc_deinit(&soilleir);
+
 	wl_display_destroy(soilleir.display);
 
 	return 0;
