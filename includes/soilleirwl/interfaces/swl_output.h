@@ -22,6 +22,17 @@ typedef struct {
 	void *data;
 } swl_output_texture_t;
 
+typedef struct swl_buffer {
+	uint32_t handle, fb_id;
+	int render; 
+
+	uint32_t format, height, width, pitch;
+	size_t size, offset;
+	uint64_t modifiers;
+
+	uint8_t *data;
+} swl_buffer_t;
+
 struct swl_output {
 	/*Version 1.0*/
 	struct wl_global *global;
@@ -48,6 +59,9 @@ struct swl_output {
 	void (*copy)(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t width, int32_t height, int32_t xoff, int32_t yoff);
 
 	swl_texture_t *background;
+
+	swl_buffer_t buffer[2];
+	int front_buffer;
 
 	struct wl_signal frame; /*Inform the compositor this output wants a frame*/
 	struct wl_signal destroy;

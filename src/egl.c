@@ -1,3 +1,4 @@
+#include "soilleirwl/interfaces/swl_output.h"
 #include <soilleirwl/renderer.h>
 #include <soilleirwl/logger.h>
 #include <soilleirwl/private/drm_output.h>
@@ -31,7 +32,7 @@ typedef struct swl_egl_functions {
 } swl_egl_functions_t;
 
 typedef struct swl_egl_render_target {
-	swl_drm_output_t *output;
+	swl_output_t *output;
 
 	EGLImage images[2]; /*Front and back*/
 	GLuint rbo[2], fbo[2];
@@ -260,7 +261,7 @@ int swl_gl_check_ext() {
 	return 0;
 }
 
-swl_egl_renderer_target_t *swl_egl_get_target(swl_drm_output_t *output, struct wl_list *list) {
+swl_egl_renderer_target_t *swl_egl_get_target(swl_output_t *output, struct wl_list *list) {
 	swl_egl_renderer_target_t *target;
 	wl_list_for_each(target, list, link) {
 		if(output == target->output) {
@@ -295,26 +296,24 @@ EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint hei
 }
 
 void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
-	swl_drm_output_t *drm_output;
 	swl_egl_renderer_t *egl;
 	swl_egl_renderer_target_t *target;
 
-	drm_output = (swl_drm_output_t*)output;
 	egl = (swl_egl_renderer_t*)render;
 	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 			egl->ctx);
-	
-	target = swl_egl_get_target(drm_output, &egl->targets);
+		
+	target = swl_egl_get_target(output, &egl->targets);
 	if(!target) { /*This is the first attach for this output*/
 		/*Create it's render objects now then*/
 		swl_egl_renderer_target_t *target = calloc(1, sizeof(swl_egl_renderer_target_t));
 		int dmabuf;
-		target->output = drm_output;
+		target->output = output;
 		for(uint32_t buf = 0; buf < 2; ++buf) {
-			drmPrimeHandleToFD(drm_output->drm_fd, drm_output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
-			target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, drm_output->buffer[buf].height,
-			drm_output->buffer[buf].width, drm_output->buffer[buf].pitch, 0);
-
+			drmPrimeHandleToFD(output->buffer[buf].render, output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
+			target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, output->buffer[buf].height,
+			output->buffer[buf].width, output->buffer[buf].pitch, 0);
+			printf("Image: %p\n", target->images[buf]);
 			glGenRenderbuffers(1, &target->rbo[buf]);
 			glBindRenderbuffer(GL_RENDERBUFFER, target->rbo[buf]);
 			
@@ -422,8 +421,8 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 		return;
 	}
 
-	uint32_t height = egl->current->output->common.mode.height;
-	uint32_t width = egl->current->output->common.mode.width;
+	uint32_t height = egl->current->output->mode.height;
+	uint32_t width = egl->current->output->mode.width;
 
 	glEnable(GL_BLEND);	
 	GLfloat verts[] = {

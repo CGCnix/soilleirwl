@@ -2,6 +2,7 @@
 #include "../src/swl-screenshot-server.h"
 #include "soilleirwl/display.h"
 #include "soilleirwl/interfaces/swl_compositor.h"
+#include "soilleirwl/x11.h"
 #include <errno.h>
 #include <soilleirwl/session.h>
 #include <soilleirwl/input.h>
@@ -94,11 +95,13 @@ typedef struct swl_xdg_toplevel swl_xdg_toplevel_t;
 
 typedef struct {
 	struct wl_display *display;
-
+	/*
 	swl_session_backend_t *session;
 	swl_dev_man_backend_t *dev_man;
 	swl_input_backend_t *input;
 	swl_display_backend_t *backend;
+	*/
+	swl_x11_backend_t *backend;
 
 	swl_seat_t seat;
 
@@ -488,7 +491,7 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 			case XKB_KEY_XF86Switch_VT_10:
 			case XKB_KEY_XF86Switch_VT_11:
 			case XKB_KEY_XF86Switch_VT_12:
-				server->session->switch_vt(server->session, 1 + sym - XKB_KEY_XF86Switch_VT_1);
+				//server->session->switch_vt(server->session, 1 + sym - XKB_KEY_XF86Switch_VT_1);
 				return;
 			case XKB_KEY_Left:
 				if(server->active->swl_xdg_surface->swl_surface->x - 10 >= 0) {
@@ -610,14 +613,11 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	swl_xdg_toplevel_t *toplevel;
 	swl_client_t *client;
 	soilleir_server_t *server = soil_output->server;
-
+	printf("FRAME\n");
 	output->renderer->attach_output(output->renderer, output);
 	output->renderer->begin(output->renderer);
 	
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
-	if(output->background) {
-		output->renderer->draw_texture(output->renderer, output->background, 0, 0);
-	}
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
 		wl_list_for_each(toplevel, &client->surfaces, link) {
@@ -866,11 +866,13 @@ int main(int argc, char **argv) {
 
 	wl_list_init(&soilleir.outputs);
 
+
 	wl_global_create(soilleir.display, &xdg_wm_base_interface, 6, &soilleir, xdg_wm_base_bind);
 	wl_display_init_shm(soilleir.display);
 	wl_global_create(soilleir.display, &wl_seat_interface,
 			9, &soilleir, wl_seat_bind);
 	wl_global_create(soilleir.display, &zswl_screenshot_manager_interface, 1, NULL, zswl_screenshot_manager_bind);
+	/*
 	soilleir.session = swl_seatd_backend_create(soilleir.display);
 	if(soilleir.session == NULL) {
 		swl_error("Failed to create session\n");
@@ -897,6 +899,9 @@ int main(int argc, char **argv) {
 		swl_error("Failed to create display backend\n");
 		return 1;
 	}	
+	*/
+	
+	soilleir.backend = swl_x11_backend_create(soilleir.display);
 
 	soilleir.seat.caps = WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER;
 	soilleir.seat.seat_name = "seat0";
@@ -904,28 +909,31 @@ int main(int argc, char **argv) {
 	soilleir.seat.map = xkb_keymap_new_from_names(soilleir.seat.xkb, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
 	soilleir.seat.state = xkb_state_new(soilleir.seat.map);
 	soilleir.seat.key.notify = wl_seat_key_press;
-	wl_signal_add(&soilleir.input->key, &soilleir.seat.key);
-
+	//wl_signal_add(&soilleir.input->key, &soilleir.seat.key);
 
 	wl_list_init(&soilleir.clients);
+
 	soilleir.output_listner.notify = soilleir_new_output;
 	wl_signal_add(&soilleir.backend->new_output, &soilleir.output_listner);
-	
+
 	swl_create_compositor(soilleir.display, soilleir.backend->get_backend_renderer(soilleir.backend));
 	swl_create_sub_compositor(soilleir.display);
 	swl_create_data_dev_man(soilleir.display);
-		
+	/*
 	swl_udev_backend_start(soilleir.dev_man);
 	swl_drm_backend_start(soilleir.backend);
+	*/
+	swl_x11_backend_start(soilleir.backend);
 	wl_display_run(soilleir.display);
 
 	wl_display_destroy_clients(soilleir.display);
+	/*
 	swl_drm_backend_destroy(soilleir.backend, soilleir.session);
 
 	swl_libinput_backend_destroy(soilleir.input);
 	swl_udev_backend_destroy(soilleir.dev_man);
 	swl_seatd_backend_destroy(soilleir.session);
-	
+	*/
 	xkb_state_unref(soilleir.seat.state);
 	xkb_keymap_unref(soilleir.seat.map);
 	xkb_context_unref(soilleir.seat.xkb);

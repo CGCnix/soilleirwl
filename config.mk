@@ -1,4 +1,4 @@
-CC=cc
+CC=clang
 CFLAGS=-O0 -g -I includes
 
 WAYLAND_SCANNER=`pkg-config wayland-scanner --variable=wayland_scanner`
