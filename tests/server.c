@@ -303,6 +303,21 @@ swl_client_t *swl_get_client_or_create(struct wl_client *client, struct wl_list 
 	return output;
 }
 
+void xdg_toplevel_mapped(struct wl_resource *surf, struct wl_client *wl_client) {
+	swl_surface_t *surface = wl_resource_get_user_data(surf);
+	swl_xdg_surface_t *xdg_surface = wl_resource_get_user_data(surface->role);
+	
+	swl_client_t *client = swl_get_client_or_create(wl_client, &xdg_surface->backend->clients);
+
+
+	struct wl_array keys;
+	wl_array_init(&keys);
+
+	if(client->keyboard) {
+		wl_keyboard_send_enter(client->keyboard, 20, surf, &keys);
+	}
+}
+
 void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_surface,
 		uint32_t id) {
 	struct wl_resource *resource;
@@ -332,7 +347,6 @@ void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_
 	wl_array_init(&array);
 
 	xdg_toplevel_send_configure(resource, 0, 0, &array);
-	xdg_toplevel_send_configure(resource, 1920, 1080, &array);
 }
 
 void xdg_surface_set_geometry(struct wl_client *client, struct wl_resource *resource,
@@ -448,10 +462,6 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 	struct wl_array keys;
 	wl_array_init(&keys);
 	key->key += 8;
-	if(server->active && server->active->client->keyboard) {
-		wl_keyboard_send_enter(server->active->client->keyboard, 1, server->active->swl_xdg_surface->swl_surface->resource, &keys);
-	}
-	
 
 	sym = xkb_state_key_get_one_sym(seat->state, key->key);
 	if(xkb_state_serialize_mods(seat->state, XKB_STATE_MODS_DEPRESSED) == (MODIFER_ALT | MODIFER_CTRL) &&
@@ -532,7 +542,6 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 		}
 		wl_keyboard_send_modifiers(server->active->client->keyboard, 1, depressed, 0, 0, 0);
 		wl_keyboard_send_key(server->active->client->keyboard, 1, 0, key->key - 8, key->state);
-		wl_keyboard_send_leave(server->active->client->keyboard, 1, server->active->swl_xdg_surface->swl_surface->resource);
 	}
 	
 }
@@ -613,11 +622,13 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	swl_xdg_toplevel_t *toplevel;
 	swl_client_t *client;
 	soilleir_server_t *server = soil_output->server;
-	printf("FRAME\n");
 	output->renderer->attach_output(output->renderer, output);
 	output->renderer->begin(output->renderer);
 	
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
+	if(output->background) {
+		output->renderer->draw_texture(output->renderer, output->background, 0, 0);
+}
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
 		wl_list_for_each(toplevel, &client->surfaces, link) {
@@ -866,7 +877,6 @@ int main(int argc, char **argv) {
 
 	wl_list_init(&soilleir.outputs);
 
-
 	wl_global_create(soilleir.display, &xdg_wm_base_interface, 6, &soilleir, xdg_wm_base_bind);
 	wl_display_init_shm(soilleir.display);
 	wl_global_create(soilleir.display, &wl_seat_interface,
@@ -909,7 +919,7 @@ int main(int argc, char **argv) {
 	soilleir.seat.map = xkb_keymap_new_from_names(soilleir.seat.xkb, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
 	soilleir.seat.state = xkb_state_new(soilleir.seat.map);
 	soilleir.seat.key.notify = wl_seat_key_press;
-	//wl_signal_add(&soilleir.input->key, &soilleir.seat.key);
+	wl_signal_add(&soilleir.backend->key, &soilleir.seat.key);
 
 	wl_list_init(&soilleir.clients);
 
@@ -939,7 +949,7 @@ int main(int argc, char **argv) {
 	xkb_context_unref(soilleir.seat.xkb);
 	
 	soilleir_ipc_deinit(&soilleir);
-
+	swl_x11_backend_destroy(soilleir.backend);	
 	wl_display_destroy(soilleir.display);
 
 	return 0;

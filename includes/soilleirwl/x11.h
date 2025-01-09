@@ -28,7 +28,12 @@ typedef struct swl_x11_backend {
 	swl_x11_output_t *output;
 
 	struct wl_signal new_output;
-	struct wl_signal new_input;
+	struct wl_signal key;
+	struct wl_signal pointer;
+
+	/*Tell others*/
+	struct wl_signal activate;
+	struct wl_signal disable;
 
 	struct wl_event_source *event;
 
@@ -36,4 +41,5 @@ typedef struct swl_x11_backend {
 } swl_x11_backend_t;
 
 swl_x11_backend_t *swl_x11_backend_create(struct wl_display *display);
-int swl_x11_backend_start(swl_x11_backend_t *x11);	
+int swl_x11_backend_start(swl_x11_backend_t *x11);
+void swl_x11_backend_destroy(swl_x11_backend_t *x11);

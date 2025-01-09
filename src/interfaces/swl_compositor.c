@@ -71,6 +71,8 @@ static void swl_surface_handle_set_opaque_region(struct wl_client *client, struc
 
 }
 
+void xdg_toplevel_mapped(struct wl_resource *surf, struct wl_client *client);
+
 static void swl_surface_handle_commit(struct wl_client *client, struct wl_resource *surface_res) {
 	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
 	struct wl_shm_buffer *buffer;
@@ -85,13 +87,16 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 		xdg_surface_send_configure(surface->role, 0);
 		return;
 	}
-
-	if(surface->texture) {
-		surface->renderer->destroy_texture(surface->renderer, surface->texture);
-		surface->texture = NULL;
+	if(surface->pending.buffer && surface->texture == NULL && strcmp(wl_resource_get_class(surface->role), "xdg_surface") == 0) {
+		xdg_toplevel_mapped(surface_res, client);
 	}
 
 	if(surface->pending_changes & SWL_SURFACE_PENDING_BUFFER) {
+		if(surface->texture) {
+			surface->renderer->destroy_texture(surface->renderer, surface->texture);
+			surface->texture = NULL;
+		}
+
 		buffer = wl_shm_buffer_get(surface->pending.buffer);
 		width = wl_shm_buffer_get_width(buffer);
 		height = wl_shm_buffer_get_height(buffer);
@@ -107,6 +112,7 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 	if(surface->frame) {
 		wl_callback_send_done(surface->frame, 0);
 		wl_resource_destroy(surface->frame);
+		
 		surface->frame = NULL;
 	}
 	memset(&surface->pending, 0, sizeof(swl_surface_state_t));

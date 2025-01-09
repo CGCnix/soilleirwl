@@ -30,6 +30,7 @@ typedef struct swl_buffer {
 	size_t size, offset;
 	uint64_t modifiers;
 
+	void *map_data;
 	uint8_t *data;
 } swl_buffer_t;
 
