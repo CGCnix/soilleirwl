@@ -136,6 +136,8 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 
 int swl_x11_event(int fd, uint32_t mask, void *data) {
 	swl_x11_backend_t *x11 = data;
+	static int32_t py;
+	static int32_t px;
 	if(mask & (WL_EVENT_ERROR | WL_EVENT_HANGUP)) {
 		wl_display_terminate(x11->display);
 	}
@@ -215,7 +217,17 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			}
 			case XCB_MOTION_NOTIFY: {
 				xcb_motion_notify_event_t *motion = (void*)ev;
+				swl_pointer_event_t pointer;
+				pointer.absx = motion->event_x;
+				pointer.absy = motion->event_y;
+
+				pointer.dx = motion->event_x - px;
+				pointer.dy = motion->event_y - py;
 				
+				wl_signal_emit(&x11->pointer, &pointer);
+
+				px = motion->event_x;
+				py = motion->event_y;
 				break;
 			}
 			case XCB_FOCUS_OUT: {

@@ -85,9 +85,9 @@ typedef struct swl_seat {
 	uint32_t caps;
 
 	struct wl_listener key;
-
 	struct wl_listener disable;
 	struct wl_listener activate;
+	struct wl_listener motion;
 
 	struct xkb_context *xkb;
 	struct xkb_keymap *map;
@@ -351,7 +351,9 @@ void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_
 	struct wl_array array;
 	wl_array_init(&array);
 	swl_xdg_toplevel->swl_xdg_surface->role = resource;
-	xdg_toplevel_send_configure(resource, 0, 0, &array);
+	xdg_toplevel_send_configure(resource, 640, 480, &array);
+	swl_xdg_toplevel->swl_xdg_surface->swl_surface->width = 640;
+	swl_xdg_toplevel->swl_xdg_surface->swl_surface->height = 480;
 }
 
 void xdg_surface_set_geometry(struct wl_client *client, struct wl_resource *resource,
@@ -593,6 +595,54 @@ static void wl_pointer_set_cur(struct wl_client *client, struct wl_resource *res
 
 }
 
+static void swl_pointer_motion(struct wl_listener *listener, void *data) {
+	swl_seat_t *seat = wl_container_of(listener, seat, motion);
+	soilleir_server_t *server = wl_container_of(seat, server, seat); 
+	swl_client_t *client;
+	swl_xdg_toplevel_t *toplevel;
+	swl_pointer_event_t *pointer = data;
+	struct wl_array keys;
+	wl_array_init(&keys);
+
+	printf("abs %d %d, delta %d %d\n", pointer->absy, pointer->absx, pointer->dy, pointer->dx);
+	wl_list_for_each(client, &server->clients, link) {
+		wl_list_for_each(toplevel, &client->surfaces, link) {
+			swl_surface_t *surface = toplevel->swl_xdg_surface->swl_surface;
+			if(pointer->absx >= surface->position.x && pointer->absx <= surface->position.x + surface->width &&
+				 pointer->absy >= surface->position.y && pointer->absy <= surface->position.y + surface->height) {
+				if(server->active && server->active->client->keyboard) {
+					wl_keyboard_send_leave(server->active->client->keyboard, wl_display_next_serial(wl_client_get_display(server->active->client->client)), server->active->swl_xdg_surface->swl_surface->resource);
+				}
+
+				server->active = toplevel;
+				if(server->active && server->active->client->keyboard) {
+					wl_keyboard_send_enter(server->active->client->keyboard, wl_display_next_serial(wl_client_get_display(server->active->client->client)), server->active->swl_xdg_surface->swl_surface->resource, &keys);
+				}
+			}
+		}
+	}
+
+	if(xkb_state_serialize_mods(seat->state, XKB_STATE_MODS_DEPRESSED) == (MODIFER_CTRL)) {
+		if(server->active) {
+			server->active->swl_xdg_surface->swl_surface->position.y += pointer->dy;
+			server->active->swl_xdg_surface->swl_surface->position.x += pointer->dx;
+		}
+	} else if(xkb_state_serialize_mods(seat->state, XKB_STATE_MODS_DEPRESSED) == (MODIFER_ALT)) {
+		if(server->active) {
+			server->active->swl_xdg_surface->swl_surface->width += pointer->dy;
+			server->active->swl_xdg_surface->swl_surface->height += pointer->dx;
+			xdg_toplevel_send_configure(server->active->swl_xdg_surface->role, 
+					server->active->swl_xdg_surface->swl_surface->width,
+					server->active->swl_xdg_surface->swl_surface->height,
+					&keys);
+			xdg_surface_send_configure(server->active->swl_xdg_surface->swl_surface->role, 20);
+		}
+	}
+
+
+
+}
+
 static const struct wl_pointer_interface wl_pointer_impl = {
 	.release = wl_pointer_release,
 	.set_cursor = wl_pointer_set_cur,
@@ -723,6 +773,8 @@ static void soilleir_new_output(struct wl_listener *listener, void *data) {
 
 	output->renderer->attach_output(output->renderer, output);
 }
+
+
 
 int soilleir_ipc_set_bgimage(struct msghdr *msg, soilleir_server_t *soilleir) {
 	soilleir_ipc_background_image *image = msg->msg_iov[0].iov_base;
@@ -978,7 +1030,8 @@ int main(int argc, char **argv) {
 	soilleir.seat.key.notify = wl_seat_key_press;
 	soilleir.seat.activate.notify = swl_seat_activate;
 	soilleir.seat.disable.notify = swl_seat_disable;
-	
+	soilleir.seat.motion.notify = swl_pointer_motion;	
+	wl_signal_add(&soilleir.backend->pointer, &soilleir.seat.motion);
 	wl_signal_add(&soilleir.backend->key, &soilleir.seat.key);
 	wl_signal_add(&soilleir.backend->disable, &soilleir.seat.disable);
 	wl_signal_add(&soilleir.backend->activate, &soilleir.seat.activate);

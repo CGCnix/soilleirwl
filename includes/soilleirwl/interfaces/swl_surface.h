@@ -81,6 +81,7 @@ typedef struct swl_surface {
 	swl_texture_t *texture;
 
 	swl_surface_pos_t position;
+	int32_t width, height;
 	/*Resource with the associate role*/
 	struct wl_resource *role;
 } swl_surface_t;
