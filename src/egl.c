@@ -274,7 +274,6 @@ swl_egl_renderer_target_t *swl_egl_get_target(swl_output_t *output, struct wl_li
 
 EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint height, EGLint width, EGLint stride, EGLint offset) {
 	EGLint attr[15];
-	swl_debug("Importing dma %d %dx%d %d(%d)\n", dma_buf, width, height, stride, offset);
 	attr[0] = EGL_WIDTH;
 	attr[1] = width;
 	attr[2] = EGL_HEIGHT;

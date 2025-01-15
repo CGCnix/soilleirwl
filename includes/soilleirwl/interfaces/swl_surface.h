@@ -53,6 +53,11 @@ typedef struct swl_surface_state {
 	struct wl_resource *buffer;
 } swl_surface_state_t;
 
+typedef struct swl_surface_pos {
+	int32_t x, y;
+	/*TODO Z*/
+} swl_surface_pos_t;
+
 typedef struct swl_surface {
 	struct wl_resource *resource;
 	struct wl_resource *frame;
@@ -66,15 +71,26 @@ typedef struct swl_surface {
 	int32_t transform;
 	struct wl_resource *input_region;
 	struct wl_resource *opaque_region;
-	
+
+	struct wl_list subsurfaces;
+
 	/*HACK:*/
 	swl_renderer_t *renderer;
 
 	/*todo some kind of buffer*/
 	swl_texture_t *texture;
 
-
-	int32_t x, y;
+	swl_surface_pos_t position;
 	/*Resource with the associate role*/
 	struct wl_resource *role;
 } swl_surface_t;
+
+typedef struct swl_subsurface {
+	struct wl_resource *resource;
+	swl_surface_t *surface; /*The Surface Connected to this subsurface*/
+	swl_surface_t *parent;
+
+	swl_surface_pos_t position;
+	struct wl_list link;
+	/*TODO Place below/above*/
+} swl_subsurface_t;

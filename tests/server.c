@@ -86,6 +86,9 @@ typedef struct swl_seat {
 
 	struct wl_listener key;
 
+	struct wl_listener disable;
+	struct wl_listener activate;
+
 	struct xkb_context *xkb;
 	struct xkb_keymap *map;
 	struct xkb_state *state;
@@ -132,6 +135,7 @@ typedef struct swl_xdg_surface {
 	swl_surface_t *swl_surface;
 	
 	soilleir_server_t *backend;
+	struct wl_resource *role;
 } swl_xdg_surface_t;
 
 typedef struct swl_xdg_toplevel {
@@ -165,6 +169,7 @@ static void zswl_screenshot_manager_bind(struct wl_client *client, void *data,
 }
 
 void swl_xdg_toplevel_destroy(struct wl_client *client, struct wl_resource *toplevel) {
+
 }
 
 void swl_xdg_toplevel_handle_destroy(struct wl_resource *toplevel) {
@@ -264,7 +269,6 @@ void xdg_surface_handle_destroy(struct wl_resource *resource) {
 
 void xdg_surface_get_popup(struct wl_client *client, struct wl_resource *resource,
 		uint32_t id, struct wl_resource *xdg_surface, struct wl_resource *xdg_positioner) {
-
 }
 
 swl_client_t *swl_get_client(struct wl_client *client, struct wl_list *list) {
@@ -306,15 +310,19 @@ swl_client_t *swl_get_client_or_create(struct wl_client *client, struct wl_list 
 void xdg_toplevel_mapped(struct wl_resource *surf, struct wl_client *wl_client) {
 	swl_surface_t *surface = wl_resource_get_user_data(surf);
 	swl_xdg_surface_t *xdg_surface = wl_resource_get_user_data(surface->role);
-	
+	swl_xdg_toplevel_t *xdg_toplevel = wl_resource_get_user_data(xdg_surface->role);
 	swl_client_t *client = swl_get_client_or_create(wl_client, &xdg_surface->backend->clients);
 
 
 	struct wl_array keys;
 	wl_array_init(&keys);
 
-	if(client->keyboard) {
-		wl_keyboard_send_enter(client->keyboard, 20, surf, &keys);
+	if(xdg_surface->backend->active == NULL) {
+		xdg_surface->backend->active = xdg_toplevel;
+
+		if(client == xdg_surface->backend->active->client && client->keyboard) {
+			wl_keyboard_send_enter(client->keyboard, 20, surf, &keys);
+		}
 	}
 }
 
@@ -339,13 +347,10 @@ void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_
 	wl_list_insert(&swl_client->surfaces, &swl_xdg_toplevel->link);
 
 	swl_xdg_toplevel->client = swl_client;
-	if(swl_xdg_toplevel->swl_xdg_surface->backend->active == NULL) {
-		swl_xdg_toplevel->swl_xdg_surface->backend->active = swl_xdg_toplevel;
-	}
 
 	struct wl_array array;
 	wl_array_init(&array);
-
+	swl_xdg_toplevel->swl_xdg_surface->role = resource;
 	xdg_toplevel_send_configure(resource, 0, 0, &array);
 }
 
@@ -470,11 +475,12 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 			case XKB_KEY_Return:
 				if(fork() == 0) {
 					/*TODO swap to magma term*/
-					execlp("foot", "foot", NULL);
+					execlp("foot", "foot", "-d", "info", NULL);
 					swl_error("Spawning food failed: %m\n");
 					exit(1);
 					return;
 				}
+				return; 
 				break;
 			case XKB_KEY_Escape:
 				wl_display_terminate(server->display);
@@ -504,22 +510,24 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 				//server->session->switch_vt(server->session, 1 + sym - XKB_KEY_XF86Switch_VT_1);
 				return;
 			case XKB_KEY_Left:
-				if(server->active->swl_xdg_surface->swl_surface->x - 10 >= 0) {
-					server->active->swl_xdg_surface->swl_surface->x -= 10;
+				if(server->active && server->active->swl_xdg_surface->swl_surface->position.x - 10 >= 0) {
+					server->active->swl_xdg_surface->swl_surface->position.x -= 10;
 				}
 				return;
 			case XKB_KEY_Right:
 			case XKB_KEY_Z:
-					server->active->swl_xdg_surface->swl_surface->x += 10;
+				if(server->active) {	
+					server->active->swl_xdg_surface->swl_surface->position.x += 10;
+				}
 				return;
 			case XKB_KEY_Up:
-				if(server->active->swl_xdg_surface->swl_surface->y - 10 >= 0) {
-					server->active->swl_xdg_surface->swl_surface->y -= 10;
+				if(server->active && server->active->swl_xdg_surface->swl_surface->position.y - 10 >= 0) {
+					server->active->swl_xdg_surface->swl_surface->position.y -= 10;
 				}
 				return;
 			case XKB_KEY_Down:
-				if(server->active->swl_xdg_surface->swl_surface->y + 10 <= 1920) {
-					server->active->swl_xdg_surface->swl_surface->y += 10;
+				if(server->active && server->active->swl_xdg_surface->swl_surface->position.y + 10 <= 1920) {
+					server->active->swl_xdg_surface->swl_surface->position.y += 10;
 				}
 				return;
 
@@ -571,7 +579,11 @@ void wl_seat_get_keyboard(struct wl_client *client, struct wl_resource *resource
 	free(map_str);
 
 	swl_client->keyboard = keyboard;
+	if(backend->active && backend->active->client == swl_client) {
+		wl_keyboard_send_enter(swl_client->keyboard, wl_display_next_serial(backend->display), backend->active->swl_xdg_surface->swl_surface->resource, &keys);
+	}
 }
+
 
 static void wl_pointer_release(struct wl_client *client, struct wl_resource *resource) {
 
@@ -605,6 +617,32 @@ static const struct wl_seat_interface wl_seat_impl = {
 	.get_touch = wl_seat_get_touch,
 };
 
+static void swl_seat_activate(struct wl_listener *listener, void *data) {
+	swl_seat_t *seat = wl_container_of(listener, seat, activate);
+	soilleir_server_t *server = wl_container_of(seat, server, seat);
+	struct  wl_array keys;
+
+	wl_array_init(&keys);
+
+	if(server->active && server->active->client->keyboard) {
+		wl_keyboard_send_enter(server->active->client->keyboard, wl_display_next_serial(server->display), server->active->swl_xdg_surface->swl_surface->resource, &keys);
+	}
+
+}
+
+static void swl_seat_disable(struct wl_listener *listener, void *data) {
+	swl_seat_t *seat = wl_container_of(listener, seat, disable);
+	soilleir_server_t *server = wl_container_of(seat, server, seat);
+	struct  wl_array keys;
+
+	wl_array_init(&keys);
+
+	if(server->active && server->active->client->keyboard) {
+		wl_keyboard_send_leave(server->active->client->keyboard, wl_display_next_serial(server->display), server->active->swl_xdg_surface->swl_surface->resource);
+	}
+
+}
+
 static void wl_seat_bind(struct wl_client *client, void *data,
     uint32_t version, uint32_t id) {
 	struct wl_resource *resource;
@@ -614,6 +652,25 @@ static void wl_seat_bind(struct wl_client *client, void *data,
 
 	wl_seat_send_name(resource, backend->seat.seat_name);
 	wl_seat_send_capabilities(resource, backend->seat.caps);
+}
+
+static void xdg_toplevel_render(swl_surface_t *toplevel, swl_output_t *output) {
+	swl_subsurface_t *subsurface;
+	/*Draw the toplevel*/
+	if(toplevel->texture) {
+		toplevel->renderer->draw_texture(toplevel->renderer, toplevel->texture, 
+				toplevel->position.x - output->x, toplevel->position.y - output->y);
+	}
+
+	/*Draw the subsurface*/
+	/*TODO: Z level*/
+	wl_list_for_each(subsurface, &toplevel->subsurfaces, link) {
+		if(subsurface->surface->texture) {
+			toplevel->renderer->draw_texture(toplevel->renderer, subsurface->surface->texture,
+				(toplevel->position.x - output->x) + subsurface->position.x, 
+				(toplevel->position.y - output->y) + subsurface->position.y);
+		}
+	}
 }
 
 static void soilleir_frame(struct wl_listener *listener, void *data) {
@@ -628,18 +685,18 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
 	if(output->background) {
 		output->renderer->draw_texture(output->renderer, output->background, 0, 0);
-}
+	}
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
 		wl_list_for_each(toplevel, &client->surfaces, link) {
-				toplevel->swl_xdg_surface->swl_surface->renderer->draw_texture(toplevel->swl_xdg_surface->swl_surface->renderer, toplevel->swl_xdg_surface->swl_surface->texture, toplevel->swl_xdg_surface->swl_surface->x - output->x, toplevel->swl_xdg_surface->swl_surface->y - output->y);
+			xdg_toplevel_render(toplevel->swl_xdg_surface->swl_surface, output);
 		}
 	}
 
 	if(soil_output->server->active) {
-	wl_list_for_each(toplevel, &soil_output->server->active->client->surfaces, link) {
-				toplevel->swl_xdg_surface->swl_surface->renderer->draw_texture(toplevel->swl_xdg_surface->swl_surface->renderer, toplevel->swl_xdg_surface->swl_surface->texture, toplevel->swl_xdg_surface->swl_surface->x - output->x, toplevel->swl_xdg_surface->swl_surface->y - output->y);
-			}
+		wl_list_for_each(toplevel, &soil_output->server->active->client->surfaces, link) {
+			xdg_toplevel_render(toplevel->swl_xdg_surface->swl_surface, output);		
+		}
 	}
 	output->renderer->end(output->renderer);
 }
@@ -919,7 +976,13 @@ int main(int argc, char **argv) {
 	soilleir.seat.map = xkb_keymap_new_from_names(soilleir.seat.xkb, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
 	soilleir.seat.state = xkb_state_new(soilleir.seat.map);
 	soilleir.seat.key.notify = wl_seat_key_press;
+	soilleir.seat.activate.notify = swl_seat_activate;
+	soilleir.seat.disable.notify = swl_seat_disable;
+	
 	wl_signal_add(&soilleir.backend->key, &soilleir.seat.key);
+	wl_signal_add(&soilleir.backend->disable, &soilleir.seat.disable);
+	wl_signal_add(&soilleir.backend->activate, &soilleir.seat.activate);
+
 
 	wl_list_init(&soilleir.clients);
 
@@ -928,6 +991,7 @@ int main(int argc, char **argv) {
 
 	swl_create_compositor(soilleir.display, soilleir.backend->get_backend_renderer(soilleir.backend));
 	swl_create_sub_compositor(soilleir.display);
+
 	swl_create_data_dev_man(soilleir.display);
 	/*
 	swl_udev_backend_start(soilleir.dev_man);

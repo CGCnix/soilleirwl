@@ -219,10 +219,12 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 				break;
 			}
 			case XCB_FOCUS_OUT: {
+				wl_signal_emit(&x11->disable, NULL);
 				/*UHHH TELL WAYLAND SEAT*/
 				break;
 			}
 			case XCB_FOCUS_IN: {
+				wl_signal_emit(&x11->activate, NULL);
 				/*UHHH TELL WAYLAND SEAT*/
 				break;
 			}
@@ -329,6 +331,8 @@ swl_x11_backend_t *swl_x11_backend_create(struct wl_display *display) {
 	wl_signal_init(&x11->key);
 	wl_signal_init(&x11->pointer);
 	wl_signal_init(&x11->new_output);
+	wl_signal_init(&x11->activate);
+	wl_signal_init(&x11->disable);
 	x11->event = wl_event_loop_add_fd(loop, xcb_get_file_descriptor(x11->connection), WL_EVENT_READABLE,
 			swl_x11_event, x11);
 
