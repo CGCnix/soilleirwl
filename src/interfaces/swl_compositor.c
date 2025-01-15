@@ -3,12 +3,14 @@
 #include "soilleirwl/renderer.h"
 #include <soilleirwl/interfaces/swl_compositor.h>
 
+#include <stdio.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <wayland-util.h>
 
 #define SWL_COMPOSITOR_VERSION 6
 #define SWL_REGION_VERSION 1
@@ -71,6 +73,7 @@ static void swl_surface_handle_set_opaque_region(struct wl_client *client, struc
 
 }
 
+
 static void swl_surface_handle_commit(struct wl_client *client, struct wl_resource *surface_res) {
 	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
 	struct wl_shm_buffer *buffer;
@@ -80,35 +83,39 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 	if(surface->role == NULL) {
 		return;
 	}
-
+	
 	if(!surface->pending.buffer && strcmp(wl_resource_get_class(surface->role), "xdg_surface") == 0) {
-		xdg_surface_send_configure(surface->role, 0);
+		xdg_surface_send_configure(surface->role, wl_display_next_serial(wl_client_get_display(client)));
 		return;
 	}
 
-	if(surface->texture) {
-		surface->renderer->destroy_texture(surface->renderer, surface->texture);
-		surface->texture = NULL;
-	}
-
 	if(surface->pending_changes & SWL_SURFACE_PENDING_BUFFER) {
-		buffer = wl_shm_buffer_get(surface->pending.buffer);
-		width = wl_shm_buffer_get_width(buffer);
-		height = wl_shm_buffer_get_height(buffer);
-		data = wl_shm_buffer_get_data(buffer);
-	
-		surface->renderer->begin(surface->renderer);
-		surface->texture = surface->renderer->create_texture(surface->renderer, width, height, 0, data);
-		surface->renderer->end(surface->renderer);
-		wl_buffer_send_release(surface->pending.buffer);
+		if(surface->texture) {
+			surface->renderer->destroy_texture(surface->renderer, surface->texture);
+			surface->texture = NULL;
+		}
+		if(surface->pending.buffer) {
+			buffer = wl_shm_buffer_get(surface->pending.buffer);
+			width = wl_shm_buffer_get_width(buffer);
+			height = wl_shm_buffer_get_height(buffer);
+			data = wl_shm_buffer_get_data(buffer);
+		
+			surface->renderer->begin(surface->renderer);
+			surface->texture = surface->renderer->create_texture(surface->renderer, width, height, 0, data);
+			surface->renderer->end(surface->renderer);
+			wl_buffer_send_release(surface->pending.buffer);
+		}
 	}
 	
 
 	if(surface->frame) {
 		wl_callback_send_done(surface->frame, 0);
 		wl_resource_destroy(surface->frame);
+		
 		surface->frame = NULL;
 	}
+
+	/*Clear Pendinging*/
 	memset(&surface->pending, 0, sizeof(swl_surface_state_t));
 	surface->pending_changes = 0;
 }
@@ -140,14 +147,16 @@ static void swl_compositor_create_surface(struct wl_client *client, struct wl_re
 		wl_client_post_no_memory(client);
 		return;
 	}
+	
+	/*Init Subsurfaces list*/
+	wl_list_init(&surface->subsurfaces);
 
 	/*Initialize some basic info*/
 	surface->scale = 1;
 	surface->transform = WL_OUTPUT_TRANSFORM_NORMAL;
 	surface->input_region = NULL;
 	surface->opaque_region = NULL;
-	surface->pending_changes = SWL_SURFACE_PENDING_NONE;
-	
+	surface->pending_changes = SWL_SURFACE_PENDING_NONE;	
 
 	surface->renderer = wl_resource_get_user_data(compositor);
 	surface->resource = wl_resource_create(client, &wl_surface_interface, SWL_SURFACE_VERSION, id);
@@ -213,7 +222,6 @@ swl_compositor_t *swl_create_compositor(struct wl_display *display, swl_renderer
 }
 
 static void swl_subsurface_set_sync(struct wl_client *client, struct wl_resource *subsurface) {
-	
 
 }
 
@@ -235,9 +243,12 @@ static void swl_subsurface_place_below(struct wl_client *client, struct wl_resou
 
 }
 
-static void swl_subsurface_set_pos(struct wl_client *client, struct wl_resource *subsurface,
+static void swl_subsurface_set_pos(struct wl_client *client, struct wl_resource *resource,
 		int32_t x, int32_t y) {
-	
+	swl_subsurface_t *subsurface = wl_resource_get_user_data(resource);
+
+	subsurface->position.x = x;
+	subsurface->position.y = y;
 }
 
 
@@ -257,9 +268,17 @@ static void swl_subcompositor_destroy(struct wl_client *client, struct wl_resour
 static void swl_subcompositor_get_subsurface(struct wl_client *client,
 		struct wl_resource *subcompositor, uint32_t id, 
 		struct wl_resource *surface, struct wl_resource *parent) {
-	struct wl_resource *subsurface = wl_resource_create(client, &wl_subsurface_interface, 1, id);
-	wl_resource_set_implementation(subsurface, &swl_subsurface_impl, NULL, NULL);
+	swl_subsurface_t *subsurface = calloc(1, sizeof(swl_subsurface_t));
+
+	subsurface->surface = wl_resource_get_user_data(surface);
+	subsurface->parent = wl_resource_get_user_data(parent);
+	wl_list_insert(&subsurface->parent->subsurfaces, &subsurface->link);
+	subsurface->resource = wl_resource_create(client, &wl_subsurface_interface, SWL_SUBSURFACE_VERSION, id);
+	wl_resource_set_implementation(subsurface->resource, &swl_subsurface_impl, subsurface, NULL);
+
+	subsurface->surface->role = subsurface->resource;
 }
+
 
 static const struct wl_subcompositor_interface swl_subcompositor_implementation = {
 	.destroy = swl_subcompositor_destroy,

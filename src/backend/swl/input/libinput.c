@@ -100,6 +100,7 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 	swl_libinput_backend_t *libinput = data;
 	struct libinput_event *event;
 	struct libinput_event_keyboard *keyboard;
+	struct libinput_event_pointer *pointer;
 
 	libinput_dispatch(libinput->ctx);
 
@@ -111,8 +112,13 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 			key.key = libinput_event_keyboard_get_key(keyboard);
 			key.state = libinput_event_keyboard_get_key_state(keyboard);
 			wl_signal_emit(&libinput->common.key, &key);
-		}
-
+		} else if(libinput_event_get_type(event) == LIBINPUT_EVENT_POINTER_MOTION) {
+			swl_pointer_event_t ptr_ev;
+			pointer = libinput_event_get_pointer_event(event);
+			ptr_ev.dx = libinput_event_pointer_get_dx(pointer);
+			ptr_ev.dy = libinput_event_pointer_get_dy(pointer);
+			wl_signal_emit(&libinput->common.pointer, &ptr_ev);
+		}	
 		libinput_event_destroy(event);
 	}
 
@@ -151,6 +157,7 @@ swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
 
 	wl_signal_init(&libinput->common.new_input);
 	wl_signal_init(&libinput->common.key);
+	wl_signal_init(&libinput->common.pointer);
 	wl_list_init(&libinput->devices);
 
 	libinput->activate.notify = swl_libinput_activate;

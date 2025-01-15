@@ -18,8 +18,14 @@ typedef struct {
 } swl_key_event_t;
 
 typedef struct {
+	int32_t dx, absx;
+	int32_t dy, absy;
+} swl_pointer_event_t;
+
+typedef struct {
 	struct wl_signal new_input;
 	struct wl_signal key;
+	struct wl_signal pointer;
 } swl_input_backend_t;
 
 

@@ -1,3 +1,4 @@
+#include "soilleirwl/interfaces/swl_output.h"
 #include <soilleirwl/renderer.h>
 #include <soilleirwl/logger.h>
 #include <soilleirwl/private/drm_output.h>
@@ -31,7 +32,7 @@ typedef struct swl_egl_functions {
 } swl_egl_functions_t;
 
 typedef struct swl_egl_render_target {
-	swl_drm_output_t *output;
+	swl_output_t *output;
 
 	EGLImage images[2]; /*Front and back*/
 	GLuint rbo[2], fbo[2];
@@ -177,7 +178,8 @@ void swl_egl_create_shader(swl_egl_renderer_t *renderer) {
 		glDeleteProgram (renderer->texture_shader);
 		return;
 	}
-
+	glDeleteShader(fragmentShader);
+	glDeleteShader(vertexShader);
 	return;
 }
 
@@ -260,7 +262,7 @@ int swl_gl_check_ext() {
 	return 0;
 }
 
-swl_egl_renderer_target_t *swl_egl_get_target(swl_drm_output_t *output, struct wl_list *list) {
+swl_egl_renderer_target_t *swl_egl_get_target(swl_output_t *output, struct wl_list *list) {
 	swl_egl_renderer_target_t *target;
 	wl_list_for_each(target, list, link) {
 		if(output == target->output) {
@@ -272,7 +274,6 @@ swl_egl_renderer_target_t *swl_egl_get_target(swl_drm_output_t *output, struct w
 
 EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint height, EGLint width, EGLint stride, EGLint offset) {
 	EGLint attr[15];
-	swl_debug("Importing dma %d %dx%d %d(%d)\n", dma_buf, width, height, stride, offset);
 	attr[0] = EGL_WIDTH;
 	attr[1] = width;
 	attr[2] = EGL_HEIGHT;
@@ -290,52 +291,52 @@ EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint hei
 	attr[13] = EGL_TRUE;
 
 	attr[14] = EGL_NONE;
-
 	return egl->funcs.EGLCreateImageKHR(egl->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attr);
 }
 
 void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
-	swl_drm_output_t *drm_output;
 	swl_egl_renderer_t *egl;
 	swl_egl_renderer_target_t *target;
 
-	drm_output = (swl_drm_output_t*)output;
 	egl = (swl_egl_renderer_t*)render;
 	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 			egl->ctx);
-	
-	target = swl_egl_get_target(drm_output, &egl->targets);
-	if(!target) { /*This is the first attach for this output*/
-		/*Create it's render objects now then*/
-		swl_egl_renderer_target_t *target = calloc(1, sizeof(swl_egl_renderer_target_t));
-		int dmabuf;
-		target->output = drm_output;
-		for(uint32_t buf = 0; buf < 2; ++buf) {
-			drmPrimeHandleToFD(drm_output->drm_fd, drm_output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
-			target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, drm_output->buffer[buf].height,
-			drm_output->buffer[buf].width, drm_output->buffer[buf].pitch, 0);
+	if(egl->current) {
+		glDeleteFramebuffers(2, egl->current->fbo);
+		glDeleteRenderbuffers(2, egl->current->rbo);
+		eglDestroyImage(egl->display, egl->current->images[0]);
+		eglDestroyImage(egl->display, egl->current->images[1]);
+		free(egl->current);
+		egl->current = NULL;
+	}
 
-			glGenRenderbuffers(1, &target->rbo[buf]);
-			glBindRenderbuffer(GL_RENDERBUFFER, target->rbo[buf]);
-			
-			egl->funcs.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, target->images[buf]);
-			glBindRenderbuffer(GL_RENDERBUFFER, 0);
-			glGenFramebuffers(1, &target->fbo[buf]);
-			glBindFramebuffer(GL_FRAMEBUFFER, target->fbo[buf]);
-			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-			GL_RENDERBUFFER, target->rbo[buf]);
-			glFlush();
-			glFinish();
-			GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			if(fb_status != GL_FRAMEBUFFER_COMPLETE) {
-				swl_error("Framebuffer %p %d error egl %d\n", target->images[buf], buf, fb_status);
-				exit(1);
-			}	
+	/*Create it's render objects now then*/
+	target = calloc(1, sizeof(swl_egl_renderer_target_t));
+	int dmabuf;
+	target->output = output;
+	for(uint32_t buf = 0; buf < 2; ++buf) {
+		drmPrimeHandleToFD(output->buffer[buf].render, output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
+	target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, output->buffer[buf].height,
+		output->buffer[buf].width, output->buffer[buf].pitch, 0);
+		close(dmabuf);
 
-
+		glGenRenderbuffers(1, &target->rbo[buf]);
+		glBindRenderbuffer(GL_RENDERBUFFER, target->rbo[buf]);
+		
+		egl->funcs.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, target->images[buf]);
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+		glGenFramebuffers(1, &target->fbo[buf]);
+		glBindFramebuffer(GL_FRAMEBUFFER, target->fbo[buf]);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+		GL_RENDERBUFFER, target->rbo[buf]);
+		glFlush();
+		glFinish();
+		GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		if(fb_status != GL_FRAMEBUFFER_COMPLETE) {
+			swl_error("Framebuffer %p %d error egl %d\n", target->images[buf], buf, fb_status);
+			exit(1);
 		}
-		wl_list_insert(&egl->targets, &target->link);
 	}
 
 	/*Make this target the current target*/ 
@@ -422,8 +423,8 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 		return;
 	}
 
-	uint32_t height = egl->current->output->common.mode.height;
-	uint32_t width = egl->current->output->common.mode.width;
+	uint32_t height = egl->current->output->mode.height;
+	uint32_t width = egl->current->output->mode.width;
 
 	glEnable(GL_BLEND);	
 	GLfloat verts[] = {
@@ -471,6 +472,25 @@ void swl_egl_destroy_texture(swl_renderer_t *render, swl_texture_t *texture) {
 	free(egl_text);
 }
 
+void swl_egl_renderer_destroy(swl_renderer_t *renderer) {
+	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)renderer;
+
+	glDeleteProgram(egl->texture_shader);
+
+	if(egl->current) {
+		glDeleteFramebuffers(2, egl->current->fbo);
+		glDeleteRenderbuffers(2, egl->current->rbo);
+		eglDestroyImage(egl->display, egl->current->images[0]);
+		eglDestroyImage(egl->display, egl->current->images[1]);
+		free(egl->current);
+		egl->current = NULL;
+	}
+
+	eglDestroyContext(egl->display, egl->current);
+	eglTerminate(egl->display);
+	free(egl);
+}
+
 swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	swl_egl_renderer_t *egl;
 	drmDevicePtr drm_dev;
@@ -499,6 +519,7 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	egl->common.create_texture = swl_egl_create_texture;
 	egl->common.destroy_texture = swl_egl_destroy_texture;
 	egl->common.draw_texture = swl_egl_draw_texture;
+	egl->common.destroy = swl_egl_renderer_destroy;
 	wl_list_init(&egl->targets);
 
 	/*Get client extension Functions*/

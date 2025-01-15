@@ -3,9 +3,9 @@
 include config.mk
 
 TARGET=soilleir
-COBJS=src/egl.o src/input/libinput.o src/swl-screenshot-server.o src/drm/drm.o src/hotplug/udev.o src/sessions/seatd.o src/xdg-shell-server.o tests/server.o src/logger.o src/interfaces/swl_compositor.o src/interfaces/swl_data_dev_man.o
-CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm glesv2 egl`
-CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl glesv2`
+COBJS=src/egl.o src/backend/swl/input/libinput.o src/swl-screenshot-server.o src/backend/swl/drm/drm.o src/backend/swl/hotplug/udev.o src/backend/swl/sessions/seatd.o src/xdg-shell-server.o tests/server.o src/logger.o src/interfaces/swl_compositor.o src/interfaces/swl_data_dev_man.o src/backend/x11/x11.o
+CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm glesv2 egl xcb xcb-dri3 xcb-present`
+CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl glesv2 xcb xcb-dri3 xcb-present`
 
 all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot ipc-cli
 
