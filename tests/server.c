@@ -1,14 +1,10 @@
 #include "../src/xdg-shell-server.h"
 #include "../src/swl-screenshot-server.h"
-#include "soilleirwl/display.h"
 #include "soilleirwl/interfaces/swl_compositor.h"
-#include "soilleirwl/x11.h"
 #include <errno.h>
-#include <soilleirwl/session.h>
-#include <soilleirwl/input.h>
-#include <soilleirwl/dev_man.h>
 #include <soilleirwl/logger.h>
 
+#include <soilleirwl/backend/backend.h>
 
 #include <soilleirwl/interfaces/swl_output.h>
 
@@ -104,7 +100,7 @@ typedef struct {
 	swl_input_backend_t *input;
 	swl_display_backend_t *backend;
 	*/
-	swl_x11_backend_t *backend;
+	swl_backend_t *backend;
 
 	swl_seat_t seat;
 
@@ -460,7 +456,7 @@ void swl_switch_client(soilleir_server_t *server) {
 		}
 	}
 }
-
+/*
 void wl_seat_key_press(struct wl_listener *listener, void *data) {
 	swl_seat_t *seat = wl_container_of(listener, seat, key);
 	soilleir_server_t *server = wl_container_of(seat, server, seat);
@@ -476,7 +472,6 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 		switch(sym) {
 			case XKB_KEY_Return:
 				if(fork() == 0) {
-					/*TODO swap to magma term*/
 					execlp("foot", "foot", "-d", "info", NULL);
 					swl_error("Spawning food failed: %m\n");
 					exit(1);
@@ -555,7 +550,7 @@ void wl_seat_key_press(struct wl_listener *listener, void *data) {
 	}
 	
 }
-
+*/
 void wl_seat_get_keyboard(struct wl_client *client, struct wl_resource *resource, uint32_t id) {
 	struct wl_resource *keyboard;
 	swl_client_t *swl_client;
@@ -594,7 +589,7 @@ static void wl_pointer_release(struct wl_client *client, struct wl_resource *res
 static void wl_pointer_set_cur(struct wl_client *client, struct wl_resource *resource, uint32_t serial, struct wl_resource *surface, int32_t x, int32_t y) {
 
 }
-
+/*
 static void swl_pointer_motion(struct wl_listener *listener, void *data) {
 	swl_seat_t *seat = wl_container_of(listener, seat, motion);
 	soilleir_server_t *server = wl_container_of(seat, server, seat); 
@@ -642,7 +637,7 @@ static void swl_pointer_motion(struct wl_listener *listener, void *data) {
 
 
 }
-
+*/
 static const struct wl_pointer_interface wl_pointer_impl = {
 	.release = wl_pointer_release,
 	.set_cursor = wl_pointer_set_cur,
@@ -980,7 +975,6 @@ int main(int argc, char **argv) {
 	soilleir_server_t soilleir = {0};
 	struct wl_client *client;
 	struct wl_event_loop *loop;
-	const char *drm_device = "/dev/dri/card0";
 	swl_log_init(SWL_LOG_INFO, "/tmp/soilleir");
 
 	soilleir.display = wl_display_create();
@@ -995,58 +989,28 @@ int main(int argc, char **argv) {
 	wl_global_create(soilleir.display, &wl_seat_interface,
 			9, &soilleir, wl_seat_bind);
 	wl_global_create(soilleir.display, &zswl_screenshot_manager_interface, 1, NULL, zswl_screenshot_manager_bind);
-	/*
-	soilleir.session = swl_seatd_backend_create(soilleir.display);
-	if(soilleir.session == NULL) {
-		swl_error("Failed to create session\n");
-		return 1;
-	}
-
-	soilleir.dev_man = swl_udev_backend_create(soilleir.display);
-	if(soilleir.dev_man == NULL) {
-		swl_error("Failed to create device manager\n");
-		return 1;
-	}
-
-	soilleir.input = swl_libinput_backend_create(soilleir.display, soilleir.session, soilleir.dev_man);
-	if(soilleir.input == NULL) {
-		swl_error("Failed to create input backend");
-		return 1;
-	}
-
-	if(getenv("SWL_DRM_DEVICE")) {
-		drm_device = getenv("SWL_DRM_DEVICE");
-	}
-	soilleir.backend = swl_drm_create_backend(soilleir.display, soilleir.session, drm_device);
-	if(soilleir.backend == NULL) {
-		swl_error("Failed to create display backend\n");
-		return 1;
-	}	
-	*/
 	
-	soilleir.backend = swl_x11_backend_create(soilleir.display);
+	soilleir.backend = swl_backend_create_by_env(soilleir.display);
+
+	swl_create_compositor(soilleir.display, soilleir.backend->BACKEND_GET_RENDERER(soilleir.backend));
 
 	soilleir.seat.caps = WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER;
 	soilleir.seat.seat_name = "seat0";
 	soilleir.seat.xkb = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 	soilleir.seat.map = xkb_keymap_new_from_names(soilleir.seat.xkb, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
 	soilleir.seat.state = xkb_state_new(soilleir.seat.map);
-	soilleir.seat.key.notify = wl_seat_key_press;
 	soilleir.seat.activate.notify = swl_seat_activate;
 	soilleir.seat.disable.notify = swl_seat_disable;
-	soilleir.seat.motion.notify = swl_pointer_motion;	
-	wl_signal_add(&soilleir.backend->pointer, &soilleir.seat.motion);
-	wl_signal_add(&soilleir.backend->key, &soilleir.seat.key);
-	wl_signal_add(&soilleir.backend->disable, &soilleir.seat.disable);
-	wl_signal_add(&soilleir.backend->activate, &soilleir.seat.activate);
 
+	soilleir.backend->BACKEND_ADD_DISABLE_LISTENER(soilleir.backend, &soilleir.seat.disable);
+	soilleir.backend->BACKEND_ADD_ACTIVATE_LISTENER(soilleir.backend, &soilleir.seat.activate);
 
 	wl_list_init(&soilleir.clients);
 
 	soilleir.output_listner.notify = soilleir_new_output;
-	wl_signal_add(&soilleir.backend->new_output, &soilleir.output_listner);
+	soilleir.backend->BACKEND_ADD_NEW_OUTPUT_LISTENER(soilleir.backend, &soilleir.output_listner);
 
-	swl_create_compositor(soilleir.display, soilleir.backend->get_backend_renderer(soilleir.backend));
+
 	swl_create_sub_compositor(soilleir.display);
 
 	swl_create_data_dev_man(soilleir.display);
@@ -1054,7 +1018,7 @@ int main(int argc, char **argv) {
 	swl_udev_backend_start(soilleir.dev_man);
 	swl_drm_backend_start(soilleir.backend);
 	*/
-	swl_x11_backend_start(soilleir.backend);
+	soilleir.backend->BACKEND_START(soilleir.backend);
 	wl_display_run(soilleir.display);
 
 	wl_display_destroy_clients(soilleir.display);
@@ -1070,7 +1034,7 @@ int main(int argc, char **argv) {
 	xkb_context_unref(soilleir.seat.xkb);
 	
 	soilleir_ipc_deinit(&soilleir);
-	swl_x11_backend_destroy(soilleir.backend);	
+	soilleir.backend->BACKEND_DESTROY(soilleir.backend);
 	wl_display_destroy(soilleir.display);
 
 	return 0;

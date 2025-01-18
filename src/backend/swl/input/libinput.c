@@ -1,6 +1,6 @@
-#include <soilleirwl/input.h>
-#include <soilleirwl/dev_man.h>
-#include <soilleirwl/session.h>
+#include <soilleirwl/backend/input.h>
+#include <soilleirwl/backend/hotplug.h>
+#include <soilleirwl/backend/session.h>
 #include <soilleirwl/logger.h>
 
 #include <wayland-server-core.h>
@@ -31,7 +31,7 @@ typedef struct swl_libinput_backend {
 
 	/**/
 	swl_session_backend_t *session;
-	swl_dev_man_backend_t *dev_man;
+	swl_hotplug_backend_t *hotplug;
 } swl_libinput_backend_t;
 
 void swl_libinput_device_added_listener(struct wl_listener *listener, void *data) {
@@ -105,23 +105,16 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 	libinput_dispatch(libinput->ctx);
 
 	while((event = libinput_get_event(libinput->ctx))) {
-
-		if(libinput_event_get_type(event) == LIBINPUT_EVENT_KEYBOARD_KEY) {
-			keyboard = libinput_event_get_keyboard_event(event);
-			swl_key_event_t key;
-			key.key = libinput_event_keyboard_get_key(keyboard);
-			key.state = libinput_event_keyboard_get_key_state(keyboard);
-			wl_signal_emit(&libinput->common.key, &key);
-		} else if(libinput_event_get_type(event) == LIBINPUT_EVENT_POINTER_MOTION) {
-			swl_pointer_event_t ptr_ev;
-			pointer = libinput_event_get_pointer_event(event);
-			ptr_ev.dx = libinput_event_pointer_get_dx(pointer);
-			ptr_ev.dy = libinput_event_pointer_get_dy(pointer);
-			wl_signal_emit(&libinput->common.pointer, &ptr_ev);
-		}	
-		libinput_event_destroy(event);
 	}
 
+	return 0;
+}
+
+int swl_libinput_backend_stop(swl_input_backend_t *input) {
+	return 0;
+}
+
+int swl_libinput_backend_start(swl_input_backend_t *input) {
 	return 0;
 }
 
@@ -137,7 +130,7 @@ void swl_libinput_backend_destroy(swl_input_backend_t *input) {
 }
 
 swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
-		swl_session_backend_t *session, swl_dev_man_backend_t *dev_man) {
+		swl_session_backend_t *session, swl_hotplug_backend_t *hotplug) {
 	swl_libinput_backend_t *libinput;
 	struct wl_event_loop *loop;
 	
@@ -152,13 +145,15 @@ swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
 	libinput->readable = wl_event_loop_add_fd(loop, libinput_get_fd(libinput->ctx), WL_EVENT_READABLE, swl_libinput_readable, libinput);	
 
 	libinput->session = session;
-	libinput->dev_man = dev_man;
+	libinput->hotplug = hotplug;
 	libinput->display = display;
 
 	wl_signal_init(&libinput->common.new_input);
-	wl_signal_init(&libinput->common.key);
-	wl_signal_init(&libinput->common.pointer);
 	wl_list_init(&libinput->devices);
+
+	libinput->common.SWL_INPUT_BACKEND_STOP = swl_libinput_backend_stop;
+	libinput->common.SWL_INPUT_BACKEND_START = swl_libinput_backend_start;
+	libinput->common.SWL_INPUT_BACKEND_DESTROY = swl_libinput_backend_destroy;
 
 	libinput->activate.notify = swl_libinput_activate;
 	libinput->deactivate.notify = swl_libinput_deactivate;
@@ -166,7 +161,7 @@ swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
 	
 	wl_signal_add(&session->activate, &libinput->activate);
 	wl_signal_add(&session->disable, &libinput->deactivate);
-	wl_signal_add(&dev_man->new_input, &libinput->device_added);
+	wl_signal_add(&hotplug->new_input, &libinput->device_added);
 	
 	return (swl_input_backend_t*)libinput;
 }

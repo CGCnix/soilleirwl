@@ -1,9 +1,9 @@
-#include "soilleirwl/input.h"
-#include "soilleirwl/interfaces/swl_output.h"
-#include "soilleirwl/logger.h"
-#include "soilleirwl/renderer.h"
+#include "soilleirwl/backend/backend.h"
+#include <soilleirwl/interfaces/swl_output.h>
+#include <soilleirwl/logger.h>
+#include <soilleirwl/renderer.h>
 #include <gbm.h>
-#include <soilleirwl/x11.h>
+#include <soilleirwl/backend/xcb.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -17,6 +17,33 @@
 
 #include <xcb/dri3.h>
 #include <xcb/present.h>
+
+typedef struct swl_x11_output {
+	swl_output_t common;
+	
+	xcb_window_t window;
+	xcb_gcontext_t gc;
+	xcb_pixmap_t pixmaps[2];
+	struct gbm_device *dev;
+	struct gbm_bo *bos[2];
+} swl_x11_output_t;
+
+typedef struct swl_x11_backend {
+	swl_backend_t backend;
+	struct wl_display *display;
+	xcb_connection_t *connection;
+	xcb_screen_t *screen;
+
+	swl_x11_output_t *output;
+
+	struct wl_signal new_output;
+	struct wl_signal new_input;
+	struct wl_signal activate;
+	struct wl_signal disable;
+
+	struct wl_event_source *event;
+} swl_x11_backend_t;
+
 
 static void swl_output_release(struct wl_client *client, struct wl_resource *resource) {
 
@@ -195,18 +222,10 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			}
 			case XCB_KEY_PRESS: {
 				xcb_key_press_event_t *kp = (void*)ev;
-				swl_key_event_t key;
-				key.state = 1;
-				key.key = kp->detail - 8;
-				wl_signal_emit(&x11->key, &key);
 				break;
 			}
 			case XCB_KEY_RELEASE: {
 				xcb_key_press_event_t *kp = (void*)ev;
-				swl_key_event_t key;
-				key.state = 0;
-				key.key = kp->detail - 8;
-				wl_signal_emit(&x11->key, &key);
 				break;
 			}
 			case XCB_CONFIGURE_NOTIFY: {
@@ -228,14 +247,6 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			}
 			case XCB_MOTION_NOTIFY: {
 				xcb_motion_notify_event_t *motion = (void*)ev;
-				swl_pointer_event_t pointer;
-				pointer.absx = motion->event_x;
-				pointer.absy = motion->event_y;
-
-				pointer.dx = motion->event_x - px;
-				pointer.dy = motion->event_y - py;
-				
-				wl_signal_emit(&x11->pointer, &pointer);
 
 				px = motion->event_x;
 				py = motion->event_y;
@@ -272,12 +283,13 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 	return 0;
 }
 
-swl_renderer_t *swl_x11_backend_get_renderer(swl_x11_backend_t *backend) {
-	return backend->output->common.renderer;
+int swl_x11_backend_stop(swl_backend_t *backend) {
+	return 0;
 }
 
 
-int swl_x11_backend_start(swl_x11_backend_t *x11) {
+int swl_x11_backend_start(swl_backend_t *backend) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
 	wl_signal_emit(&x11->new_output, x11->output);
 
 
@@ -303,7 +315,8 @@ int swl_x11_backend_start(swl_x11_backend_t *x11) {
 	return 0;
 }
 
-void swl_x11_backend_destroy(swl_x11_backend_t *x11) {
+void swl_x11_backend_destroy(swl_backend_t *backend) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
 	wl_event_source_remove(x11->event);
 
 	for(uint32_t i = 0; i < 2; ++i) {
@@ -318,7 +331,36 @@ void swl_x11_backend_destroy(swl_x11_backend_t *x11) {
 	free(x11);
 }
 
-swl_x11_backend_t *swl_x11_backend_create(struct wl_display *display) {
+void swl_x11_backend_add_new_output_listener(swl_backend_t *backend, struct wl_listener *listener) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
+
+	wl_signal_add(&x11->new_output, listener);
+}
+
+void swl_x11_backend_add_new_input_listener(swl_backend_t *backend, struct wl_listener *listener) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
+
+	wl_signal_add(&x11->new_input, listener);
+}
+
+void swl_x11_backend_add_new_activate_listener(swl_backend_t *backend, struct wl_listener *listener) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
+
+	wl_signal_add(&x11->activate, listener);
+}
+
+void swl_x11_backend_add_new_disable_listener(swl_backend_t *backend, struct wl_listener *listener) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
+
+	wl_signal_add(&x11->disable, listener);
+}
+
+swl_renderer_t *swl_x11_backend_get_renderer(swl_backend_t *backend) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t *)backend;
+	return x11->output->common.renderer;
+}
+
+swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 	swl_x11_backend_t *x11 = calloc(1, sizeof(swl_x11_backend_t));
 	struct wl_event_loop *loop = wl_display_get_event_loop(display);
 	const xcb_setup_t *setup;
@@ -351,9 +393,8 @@ swl_x11_backend_t *swl_x11_backend_create(struct wl_display *display) {
 		}
 	}
 
-	wl_signal_init(&x11->key);
-	wl_signal_init(&x11->pointer);
 	wl_signal_init(&x11->new_output);
+	wl_signal_init(&x11->new_input);
 	wl_signal_init(&x11->activate);
 	wl_signal_init(&x11->disable);
 	x11->event = wl_event_loop_add_fd(loop, xcb_get_file_descriptor(x11->connection), WL_EVENT_READABLE,
@@ -361,6 +402,13 @@ swl_x11_backend_t *swl_x11_backend_create(struct wl_display *display) {
 
 	x11->output = swl_x11_output_create(x11);
 
-	x11->get_backend_renderer = swl_x11_backend_get_renderer;
-	return x11;
+	x11->backend.BACKEND_ADD_NEW_OUTPUT_LISTENER = swl_x11_backend_add_new_output_listener;
+	x11->backend.BACKEND_ADD_ACTIVATE_LISTENER = swl_x11_backend_add_new_activate_listener;
+	x11->backend.BACKEND_ADD_DISABLE_LISTENER = swl_x11_backend_add_new_disable_listener;
+	x11->backend.BACKEND_ADD_NEW_INPUT_LISTENER = swl_x11_backend_add_new_input_listener;
+	x11->backend.BACKEND_DESTROY = swl_x11_backend_destroy;
+	x11->backend.BACKEND_STOP = swl_x11_backend_stop;
+	x11->backend.BACKEND_START = swl_x11_backend_start;
+	x11->backend.BACKEND_GET_RENDERER = swl_x11_backend_get_renderer;
+	return (swl_backend_t*)x11;
 }

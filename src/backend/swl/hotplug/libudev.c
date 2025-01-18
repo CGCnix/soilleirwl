@@ -1,4 +1,4 @@
-#include <soilleirwl/dev_man.h>
+#include <soilleirwl/backend/hotplug.h>
 #include <soilleirwl/logger.h>
 
 #include <wayland-server.h>
@@ -7,7 +7,7 @@
 #include <stdlib.h>
 
 typedef struct {
-	swl_dev_man_backend_t common;
+	swl_hotplug_backend_t common;
 
 	struct udev *udev;
 
@@ -15,7 +15,7 @@ typedef struct {
 	struct udev_monitor *drm_monitor;
 
 	struct wl_event_source *readable;
-} swl_udev_backend_t;
+} swl_libudev_backend_t;
 
 /*TODO: I am unsure how I am going to handle the drm
  * devices because I want to export their backends to 
@@ -44,8 +44,8 @@ typedef struct {
  * timings.
  */
 
-int swl_udev_backend_start(void *data) {
-	swl_udev_backend_t *udev = data;
+int swl_libudev_backend_start(swl_hotplug_backend_t *hotplug) {
+	swl_libudev_backend_t *udev = (swl_libudev_backend_t*)hotplug;
 	struct udev_enumerate *inputs;
 	const char *sysname;
 	const char *devpath;
@@ -73,20 +73,26 @@ int swl_udev_backend_start(void *data) {
 	return 0;
 }
 
-void swl_udev_backend_destroy(swl_dev_man_backend_t *dev_man) {
-	swl_udev_backend_t *udev;
+int swl_libudev_backend_stop(swl_hotplug_backend_t *hotplug) {
+	return 0;
+}
 
-	udev = (swl_udev_backend_t*)dev_man;
+void swl_libudev_backend_destroy(swl_hotplug_backend_t *hotplug) {
+	swl_libudev_backend_t *udev;
+
+	udev = (swl_libudev_backend_t*)hotplug;
 	udev_unref(udev->udev);
 	free(udev);
 }
 
-swl_dev_man_backend_t *swl_udev_backend_create(struct wl_display *display) {
-	swl_udev_backend_t *udev = calloc(1, sizeof(swl_udev_backend_t));
+swl_hotplug_backend_t *swl_libudev_backend_create(struct wl_display *display) {
+	swl_libudev_backend_t *udev = calloc(1, sizeof(swl_libudev_backend_t));
 
 	wl_signal_init(&udev->common.new_input);
 	udev->udev = udev_new();
-	
+	udev->common.start = swl_libudev_backend_start;
+	udev->common.stop = swl_libudev_backend_stop;
+	udev->common.destroy = swl_libudev_backend_destroy;
 
-	return (swl_dev_man_backend_t*)udev;
+	return (swl_hotplug_backend_t*)udev;
 }

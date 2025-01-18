@@ -1,7 +1,8 @@
-#include <soilleirwl/display.h>
-#include <soilleirwl/session.h>
 #include <soilleirwl/logger.h>
 #include <soilleirwl/renderer.h>
+
+#include <soilleirwl/backend/display.h>
+#include <soilleirwl/backend/session.h>
 
 #include <soilleirwl/interfaces/swl_output.h>
 
@@ -116,7 +117,7 @@ int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height)
 	int ret;
 	bo->width = width;
 	bo->height = height;
-
+	bo->render = fd;
 	swl_debug("DRM FD: %d\n", fd);
 	if(drmGetNodeTypeFromFd(fd) != DRM_NODE_RENDER) {
 		swl_debug("Control Node\n");
@@ -526,13 +527,19 @@ void swl_drm_activate(struct wl_listener *listener, void *data) {
 	}
 }
 
-int swl_drm_get_fd(swl_display_backend_t *display) {
-	swl_drm_backend_t *drm = (swl_drm_backend_t *)display;
-	return drm->fd;
+void swl_drm_backend_destroy(swl_display_backend_t *display, swl_session_backend_t *session) {
+	swl_drm_backend_t *drm = (void *)display;
+	
+	wl_event_source_remove(drm->readable);
+
+	swl_drm_outputs_destroy(drm->fd, &drm->outputs);
+	session->close_dev(session, drm->dev);
+	close(drm->fd);
+	free(drm);
 }
 
-swl_renderer_t *swl_drm_get_renderer(swl_display_backend_t *display) {
-	swl_drm_backend_t *drm = (swl_drm_backend_t *)display;
+swl_renderer_t *swl_drm_backend_get_renderer(swl_display_backend_t *display) {
+	swl_drm_backend_t *drm = (swl_drm_backend_t*)display;
 
 	return drm->renderer;
 }
@@ -567,18 +574,11 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 
 	drm->readable = wl_event_loop_add_fd(loop, drm->fd, WL_EVENT_READABLE,
 			swl_drm_readable, drm);
-	drm->common.get_drm_fd = swl_drm_get_fd;
-	drm->common.get_backend_renderer = swl_drm_get_renderer;
+
+
+	drm->common.SWL_DISPLAY_BACKEND_DESTROY = swl_drm_backend_destroy;
+	drm->common.SWL_DISPLAY_BACKEND_START = swl_drm_backend_start;
+	drm->common.SWL_DISPLAY_BACKEND_STOP = swl_drm_backend_stop;
+	drm->common.SWL_DISPLAY_BACKEND_GET_RENDERER = swl_drm_backend_get_renderer;
 	return (swl_display_backend_t*)drm;
-}
-
-void swl_drm_backend_destroy(swl_display_backend_t *display, swl_session_backend_t *session) {
-	swl_drm_backend_t *drm = (void *)display;
-	
-	wl_event_source_remove(drm->readable);
-
-	swl_drm_outputs_destroy(drm->fd, &drm->outputs);
-	session->close_dev(session, drm->dev);
-	close(drm->fd);
-	free(drm);
 }
