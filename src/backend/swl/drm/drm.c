@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <wayland-client-protocol.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 #include <wayland-util.h>
@@ -399,19 +400,30 @@ static void swl_output_bind(struct wl_client *client, void *data,
 
 	resource = wl_resource_create(client, &wl_output_interface, SWL_OUTPUT_VERSION, id);
 	wl_resource_set_implementation(resource, &swl_output_impl, data, NULL);
-
-	wl_output_send_geometry(resource,
-			output->common.x, output->common.y, 
-			output->common.width, output->common.height, 
-			output->common.subpixel, output->common.make, 
-			output->common.model, output->common.tranform);
-	wl_output_send_mode(resource, output->common.mode.flags, 
-			output->common.mode.width, output->common.mode.height,
-			output->common.mode.refresh);
-	wl_output_send_scale(resource, output->common.scale);
-	wl_output_send_name(resource, output->common.name);
-	wl_output_send_description(resource, output->common.description);
-	wl_output_send_done(resource);
+	if(version >= WL_OUTPUT_GEOMETRY_SINCE_VERSION) {
+		wl_output_send_geometry(resource,
+				output->common.x, output->common.y, 
+				output->common.width, output->common.height, 
+				output->common.subpixel, output->common.make, 
+				output->common.model, output->common.tranform);
+	}
+	if(version >= WL_OUTPUT_MODE_SINCE_VERSION) {
+		wl_output_send_mode(resource, output->common.mode.flags, 
+				output->common.mode.width, output->common.mode.height,
+				output->common.mode.refresh);
+	}
+	if(version >= WL_OUTPUT_SCALE_SINCE_VERSION) {
+		wl_output_send_scale(resource, output->common.scale);
+	}
+	if(version >= WL_OUTPUT_NAME_SINCE_VERSION) {
+		wl_output_send_name(resource, output->common.name);
+	}
+	if(version >= WL_OUTPUT_DESCRIPTION_SINCE_VERSION) {
+		wl_output_send_description(resource, output->common.description);
+	}
+	if(version >= WL_OUTPUT_DONE_SINCE_VERSION) {
+		wl_output_send_done(resource);
+	}
 }
 
 static void modeset_page_flip_event(int fd, unsigned int frame,

@@ -700,8 +700,12 @@ static void wl_seat_bind(struct wl_client *client, void *data,
 	resource = wl_resource_create(client, &wl_seat_interface, 9, id);
 	wl_resource_set_implementation(resource, &wl_seat_impl, data, NULL);
 
-	wl_seat_send_name(resource, backend->seat.seat_name);
-	wl_seat_send_capabilities(resource, backend->seat.caps);
+	if(version >= WL_SEAT_NAME_SINCE_VERSION) {
+		wl_seat_send_name(resource, backend->seat.seat_name);
+	}
+	if(version >= WL_SEAT_CAPABILITIES_SINCE_VERSION) {
+		wl_seat_send_capabilities(resource, backend->seat.caps);
+	}
 }
 
 static void xdg_toplevel_render(swl_surface_t *toplevel, swl_output_t *output) {

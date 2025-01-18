@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <wayland-server-core.h>
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
@@ -33,21 +34,31 @@ static void swl_output_bind(struct wl_client *client, void *data,
 	resource = wl_resource_create(client, &wl_output_interface, SWL_OUTPUT_VERSION, id);
 	wl_resource_set_implementation(resource, &swl_output_impl, data, NULL);
 
-	wl_output_send_geometry(resource,
-			output->common.x, output->common.y, 
-			output->common.width, output->common.height, 
-			output->common.subpixel, output->common.make, 
-			output->common.model, output->common.tranform);
-	wl_output_send_mode(resource, output->common.mode.flags, 
-			output->common.mode.width, output->common.mode.height,
-			output->common.mode.refresh);
-	wl_output_send_scale(resource, output->common.scale);
-	wl_output_send_name(resource, output->common.name);
-	wl_output_send_description(resource, output->common.description);
-	wl_output_send_done(resource);
+	if(version >= WL_OUTPUT_GEOMETRY_SINCE_VERSION) {
+		wl_output_send_geometry(resource,
+				output->common.x, output->common.y, 
+				output->common.width, output->common.height, 
+				output->common.subpixel, output->common.make, 
+				output->common.model, output->common.tranform);
+	}
+	if(version >= WL_OUTPUT_MODE_SINCE_VERSION) {
+		wl_output_send_mode(resource, output->common.mode.flags, 
+				output->common.mode.width, output->common.mode.height,
+				output->common.mode.refresh);
+	}
+	if(version >= WL_OUTPUT_SCALE_SINCE_VERSION) {
+		wl_output_send_scale(resource, output->common.scale);
+	}
+	if(version >= WL_OUTPUT_NAME_SINCE_VERSION) {
+		wl_output_send_name(resource, output->common.name);
+	}
+	if(version >= WL_OUTPUT_DESCRIPTION_SINCE_VERSION) {
+		wl_output_send_description(resource, output->common.description);
+	}
+	if(version >= WL_OUTPUT_DONE_SINCE_VERSION) {
+		wl_output_send_done(resource);
+	}
 }
-
-#include <fcntl.h>
 
 int swl_x11_create_fb(struct gbm_device *dev, struct gbm_bo **gbm_bo, swl_buffer_t *bo, uint32_t width, uint32_t height) {
 	*gbm_bo = gbm_bo_create(dev, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING);
