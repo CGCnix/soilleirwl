@@ -3,7 +3,8 @@
 
 typedef struct swl_output swl_output_t;
 
-#include "soilleirwl/renderer.h"
+#include <soilleirwl/allocator/gbm.h>
+#include <soilleirwl/renderer.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 
@@ -61,7 +62,7 @@ struct swl_output {
 
 	swl_texture_t *background;
 
-	swl_buffer_t buffer[2];
+	swl_gbm_buffer_t **buffer;
 	int front_buffer;
 
 	struct wl_signal frame; /*Inform the compositor this output wants a frame*/
