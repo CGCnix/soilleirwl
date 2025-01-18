@@ -1,9 +1,11 @@
-#include "soilleirwl/renderer.h"
+#include "soilleirwl/logger.h"
+#include <soilleirwl/renderer.h>
 #include <soilleirwl/backend/hotplug.h>
 #include <soilleirwl/backend/display.h>
 #include <soilleirwl/backend/input.h>
 #include <soilleirwl/backend/session.h>
 #include <soilleirwl/backend/backend.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <wayland-server-core.h>
 
@@ -40,6 +42,12 @@ int swl_tty_backend_stop(swl_backend_t *backend) {
 	return 0;
 }
 
+int swl_tty_backend_switch_vt(swl_backend_t *backend, int vt) {
+	swl_tty_backend_t *tty = swl_backend_to_tty_backend(backend);
+	
+	return tty->session->switch_vt(tty->session, vt);
+}
+
 void swl_tty_backend_destroy(swl_backend_t *backend) {
 	/*TODO*/
 }
@@ -74,6 +82,11 @@ swl_renderer_t *swl_tty_backend_get_renderer(swl_backend_t *backend) {
 	return tty->display->SWL_DISPLAY_BACKEND_GET_RENDERER(tty->display);
 }
 
+int swl_tty_backend_move_cursor(swl_backend_t *backend, int32_t x, int32_t y) {
+	swl_tty_backend_t *tty = swl_backend_to_tty_backend(backend);
+	swl_debug("Test\n");
+	return tty->display->SWL_DISPLAY_BACKEND_MOVE_CURSOR(tty->display, x, y);
+}
 
 
 swl_backend_t *swl_tty_backend_create(struct wl_display *display) {
@@ -97,5 +110,7 @@ swl_backend_t *swl_tty_backend_create(struct wl_display *display) {
 	tty->backend.BACKEND_ADD_NEW_INPUT_LISTENER = swl_tty_backend_add_new_input_listener;
 	tty->backend.BACKEND_ADD_ACTIVATE_LISTENER = swl_tty_backend_add_new_activate_listener;
 	tty->backend.BACKEND_ADD_DISABLE_LISTENER = swl_tty_backend_add_new_disable_listener;
+	tty->backend.BACKEND_SWITCH_VT = swl_tty_backend_switch_vt;
+	tty->backend.BACKEND_MOVE_CURSOR = swl_tty_backend_move_cursor;
 	return (swl_backend_t*)tty;
 }

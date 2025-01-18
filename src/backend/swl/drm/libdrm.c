@@ -1,12 +1,10 @@
 #include <soilleirwl/logger.h>
 #include <soilleirwl/renderer.h>
 
+#include <soilleirwl/allocator/gbm.h>
 #include <soilleirwl/backend/display.h>
 #include <soilleirwl/backend/session.h>
-
 #include <soilleirwl/interfaces/swl_output.h>
-
-#include <soilleirwl/private/drm_output.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -25,10 +23,25 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+typedef struct swl_drm_output {
+	swl_output_t common;
+
+	uint32_t fb_id[2];
+	swl_gbm_buffer_t *cursor;
+
+	drmModeCrtcPtr original_crtc;
+	drmModeConnectorPtr connector;
+
+	int pending;
+	int shutdown;
+
+	struct wl_list link;
+} swl_drm_output_t;
 
 typedef struct swl_drm_backend {
 	swl_display_backend_t common;
 	int fd, dev;
+	struct gbm_device *gbm;
 
 	struct wl_list outputs;
 	
@@ -68,49 +81,6 @@ drmModeCrtc *swl_drm_get_conn_crtc(int fd, drmModeConnector *conn, drmModeRes *r
 		exit(1);
 	}
 	return crtc;
-}
-
-int swl_drm_create_cursor_fb(struct gbm_device *dev, int fd, swl_buffer_t *bo, uint32_t width, uint32_t height) {
-	int ret;
-
-	bo->width = width;
-	bo->height = height;
-	if(!bo) {
-		swl_error("Invalid input create fb\n");
-		return -1;
-	}
-	
-	ret = drmModeCreateDumbBuffer(fd, width, height, 32, 0, &bo->handle, &bo->pitch, &bo->size);
-	if(ret) {
-		swl_error("Unable to create drmModeCreateDumbBuffer\n");
-		return -1;
-	}
-
-	ret = drmModeAddFB(fd, width, height, 24, 32, bo->pitch, bo->handle, &bo->fb_id);
-	if(ret) {
-		swl_error("Unable to add fb to drm card\n");
-		goto error_destroy;
-	}
-
-	ret = drmModeMapDumbBuffer(fd, bo->handle, &bo->offset);
-	if(ret) {
-		swl_error("Unable to map dumb buffer\n");
-		goto error_fb;
-	}
-
-	bo->data = mmap(NULL, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bo->offset);
-	if(bo->data == MAP_FAILED) {
-		swl_error("MMAP failed\n");
-		goto error_fb;
-	}
-
-	return 0;
-
-	error_fb:
-	drmModeRmFB(fd, bo->fb_id);
-	error_destroy:
-	drmModeDestroyDumbBuffer(fd, bo->handle);
-	return ret;
 }
 
 int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height) {
@@ -185,17 +155,6 @@ int swl_drm_destroy_fb(int fd, swl_buffer_t *bo) {
  */
 void swl_output_copy(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t width, int32_t height, int32_t xoff, int32_t yoff) {
 	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
-	uint32_t *src = (uint32_t *)drm_output->common.buffer[drm_output->common.front_buffer].data;
-	uint32_t src_width = drm_output->common.buffer[drm_output->common.front_buffer].width;
-	uint32_t *dst = wl_shm_buffer_get_data(buffer);
-	
-	if(src) {
-		for(uint32_t y = 0; y < height; y++) {
-			for(uint32_t x = 0; x < width; x++) {
-				dst[y * width + x] = src[(y + yoff) * width + x + xoff];
-			}
-		}
-	}
 
 }
 
@@ -338,15 +297,23 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	wl_signal_init(&output->destroy);
 }
 
-swl_drm_output_t *swl_drm_output_create(int fd, drmModeRes *res, drmModeConnector *conn) {
+swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeRes *res, drmModeConnector *conn) {
 	swl_drm_output_t *output = calloc(1, sizeof(swl_drm_output_t));
-
+	uint32_t width = conn->modes->hdisplay;
+	uint32_t height = conn->modes->vdisplay;
+	uint32_t ret = 0;
 	output->connector = conn;
 	swl_output_init_common(fd, conn, &output->common);
 	output->original_crtc = swl_drm_get_conn_crtc(fd, conn, res);
-	swl_drm_create_fb(fd, &output->common.buffer[0], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
-	swl_drm_create_fb(fd, &output->common.buffer[1], output->connector->modes->hdisplay, output->connector->modes->vdisplay);
-	output->drm_fd = fd;	
+
+	output->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
+	output->common.buffer[0] = swl_gbm_buffer_create(gbm, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING, 32);
+	output->common.buffer[1] = swl_gbm_buffer_create(gbm, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING, 32);
+	output->cursor = swl_gbm_buffer_create(gbm, 64, 64, GBM_FORMAT_XRGB8888, GBM_BO_USE_CURSOR | GBM_BO_USE_RENDERING, 32);
+
+	ret = drmModeAddFB(fd, width, height, 24, 32, output->common.buffer[0]->pitch, output->common.buffer[0]->handle, &output->fb_id[0]);
+	ret = drmModeAddFB(fd, width, height, 24, 32, output->common.buffer[1]->pitch, output->common.buffer[1]->handle, &output->fb_id[1]);
+
 	return output;
 }
 
@@ -354,9 +321,12 @@ void swl_drm_outputs_destroy(int fd, struct wl_list *list) {
 	swl_drm_output_t *output, *tmp;
 	wl_list_for_each_safe(output, tmp, list, link) {
 		wl_signal_emit(&output->common.destroy, &output);
+	
+		drmModeRmFB(fd, output->fb_id[0]);
+		drmModeRmFB(fd, output->fb_id[1]);
 
-		swl_drm_destroy_fb(fd, &output->common.buffer[0]);
-		swl_drm_destroy_fb(fd, &output->common.buffer[1]);
+		swl_gbm_buffer_destroy(output->common.buffer[0]);
+		swl_gbm_buffer_destroy(output->common.buffer[1]);
 
 		drmModeFreeCrtc(output->original_crtc);
 		drmModeFreeConnector(output->connector);
@@ -365,7 +335,7 @@ void swl_drm_outputs_destroy(int fd, struct wl_list *list) {
 	}
 }
 
-int drm_create_outputs(int fd, drmModeRes *res, struct wl_list *list) {
+int drm_create_outputs(struct gbm_device *gbm, int fd, drmModeRes *res, struct wl_list *list) {
 	uint32_t count;
 	drmModeConnector *connector = NULL;
 	swl_drm_output_t *output;
@@ -376,7 +346,7 @@ int drm_create_outputs(int fd, drmModeRes *res, struct wl_list *list) {
 			swl_warn("Failed to get connector %d\n", res->connectors[count]);
 			continue;
 		} else if(connector->connection == DRM_MODE_CONNECTED) {
-			output = swl_drm_output_create(fd, res, connector);
+			output = swl_drm_output_create(gbm, fd, res, connector);
 			wl_list_insert(list, &output->link);
 			continue;
 		}
@@ -437,7 +407,7 @@ static void modeset_page_flip_event(int fd, unsigned int frame,
 		wl_signal_emit(&output->common.frame, output);
 
 		if(drmModePageFlip(fd, output->original_crtc->crtc_id, 
-				output->common.buffer[output->common.front_buffer].fb_id, 
+				output->fb_id[output->common.front_buffer], 
 				DRM_MODE_PAGE_FLIP_EVENT, data)) {
 			swl_error("Page Flip Failed\n");
 		}
@@ -483,11 +453,13 @@ int swl_drm_backend_start(swl_display_backend_t *display) {
 		output->common.renderer = drm->renderer;
 		output->common.global = wl_global_create(drm->display, &wl_output_interface, 
 				SWL_OUTPUT_VERSION, output, swl_output_bind);
-		drmModeSetCrtc(drm->fd, output->original_crtc->crtc_id, output->common.buffer[0].fb_id, 
+		drmModeSetCrtc(drm->fd, output->original_crtc->crtc_id, output->fb_id[0], 
 				0, 0, &output->connector->connector_id, 1, output->connector->modes);
 		output->common.front_buffer ^= 1;
+		drmModeSetCursor(drm->fd, output->original_crtc->crtc_id, output->cursor->handle,
+				output->cursor->width, output->cursor->height);
 		drmModePageFlip(drm->fd, output->original_crtc->crtc_id, 
-			output->common.buffer[output->common.front_buffer].fb_id, DRM_MODE_PAGE_FLIP_EVENT, output);
+			output->fb_id[output->common.front_buffer], DRM_MODE_PAGE_FLIP_EVENT, output);
 		output->pending = true;
 		wl_signal_emit(&drm->common.new_output, output);
 	}
@@ -508,6 +480,15 @@ void swl_drm_deactivate(struct wl_listener *listener, void *data) {
 	}
 }
 
+int swl_drm_backend_move_cursor(swl_display_backend_t *display, int32_t x, int32_t y) {
+	swl_drm_backend_t *drm = (swl_drm_backend_t*)display;
+	swl_drm_output_t *output;
+	swl_debug("Debug\n");
+	wl_list_for_each(output, &drm->outputs, link) {
+		swl_debug("Move Cursor: %d\n", drmModeMoveCursor(drm->fd, output->original_crtc->crtc_id, x, y));
+	}
+	return 0;
+}
 
 void swl_drm_activate(struct wl_listener *listener, void *data) {
 	swl_drm_backend_t *drm = wl_container_of(listener, drm, activate);
@@ -518,11 +499,11 @@ void swl_drm_activate(struct wl_listener *listener, void *data) {
 
 	wl_list_for_each(output, &drm->outputs, link) {
 		output->shutdown = false;
-		drmModeSetCrtc(drm->fd, output->original_crtc->crtc_id, output->common.buffer[0].fb_id, 
+		drmModeSetCrtc(drm->fd, output->original_crtc->crtc_id, output->fb_id[0], 
 				0, 0, &output->connector->connector_id, 1, output->connector->modes);
 		output->common.front_buffer ^= 1;
 		drmModePageFlip(drm->fd, output->original_crtc->crtc_id, 
-			output->common.buffer[output->common.front_buffer].fb_id, DRM_MODE_PAGE_FLIP_EVENT, output);
+			output->fb_id[output->common.front_buffer], DRM_MODE_PAGE_FLIP_EVENT, output);
 		output->pending = true;
 	}
 }
@@ -555,8 +536,9 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 	res = drmModeGetResources(drm->fd);
 
 	wl_list_init(&drm->outputs);
+	drm->gbm = gbm_create_device(drm->fd);
 
-	drm_create_outputs(drm->fd, res, &drm->outputs);
+	drm_create_outputs(drm->gbm, drm->fd, res, &drm->outputs);
 	drmModeFreeResources(res);
 	drm->display = display;
 	wl_signal_init(&drm->common.new_output);
@@ -580,5 +562,6 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 	drm->common.SWL_DISPLAY_BACKEND_START = swl_drm_backend_start;
 	drm->common.SWL_DISPLAY_BACKEND_STOP = swl_drm_backend_stop;
 	drm->common.SWL_DISPLAY_BACKEND_GET_RENDERER = swl_drm_backend_get_renderer;
+	drm->common.SWL_DISPLAY_BACKEND_MOVE_CURSOR = swl_drm_backend_move_cursor;
 	return (swl_display_backend_t*)drm;
 }

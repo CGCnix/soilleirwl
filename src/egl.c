@@ -315,9 +315,9 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 	int dmabuf;
 	target->output = output;
 	for(uint32_t buf = 0; buf < 2; ++buf) {
-		drmPrimeHandleToFD(output->buffer[buf].render, output->buffer[buf].handle, DRM_CLOEXEC, &dmabuf);
-	target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, output->buffer[buf].height,
-		output->buffer[buf].width, output->buffer[buf].pitch, 0);
+		drmPrimeHandleToFD(output->buffer[buf]->render, output->buffer[buf]->handle, DRM_CLOEXEC, &dmabuf);
+	target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, output->buffer[buf]->height,
+		output->buffer[buf]->width, output->buffer[buf]->pitch, 0);
 		close(dmabuf);
 
 		glGenRenderbuffers(1, &target->rbo[buf]);
@@ -350,8 +350,8 @@ void swl_egl_begin(swl_renderer_t *renderer) {
 			egl->ctx);
 	glBindFramebuffer(GL_FRAMEBUFFER, egl->current->fbo[front]);
 
-	glViewport(0, 0, egl->current->output->buffer[front].width,
-			egl->current->output->buffer[front].height);
+	glViewport(0, 0, egl->current->output->buffer[front]->width,
+			egl->current->output->buffer[front]->height);
 
 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
@@ -400,6 +400,7 @@ swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 	texture->height = height;
 	texture->width = width;
 	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);		
+
 
 	glGenTextures(1, &texture->id);
 	glBindTexture(GL_TEXTURE_2D, texture->id);

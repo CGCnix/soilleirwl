@@ -61,7 +61,7 @@ typedef struct swl_surface_pos {
 typedef struct swl_surface {
 	struct wl_resource *resource;
 	struct wl_resource *frame;
-	
+	int surface_configured;	
 	/*Pending State Swaped into current on commit*/
 	uint32_t pending_changes; /*<Pending changes to apply on commit*/
 	swl_surface_state_t pending;

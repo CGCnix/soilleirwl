@@ -2,6 +2,7 @@
 #include <soilleirwl/backend/hotplug.h>
 #include <soilleirwl/backend/session.h>
 #include <soilleirwl/logger.h>
+#include <soilleirwl/interfaces/swl_input_device.h>
 
 #include <wayland-server-core.h>
 #include <libinput.h>
@@ -9,6 +10,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <wayland-util.h>
 
 typedef struct swl_libinput_device {
 	int fd, dev_id;
@@ -54,7 +56,6 @@ void swl_libinput_activate(struct wl_listener *listener, void *data) {
 
 swl_libinput_device_t *swl_libinput_get_device_by_fd(struct wl_list *devices, int fd) {
 	swl_libinput_device_t *device;
-
 	wl_list_for_each(device, devices, link) {
 		if(device->fd == fd) return device;
 	}
@@ -101,10 +102,62 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 	struct libinput_event *event;
 	struct libinput_event_keyboard *keyboard;
 	struct libinput_event_pointer *pointer;
-
+	struct libinput_device *device;
+	swl_input_dev_t *input;
+		
 	libinput_dispatch(libinput->ctx);
 
 	while((event = libinput_get_event(libinput->ctx))) {
+		enum libinput_event_type type = libinput_event_get_type(event);
+		device = libinput_event_get_device(event);
+
+		switch(type) {
+			case LIBINPUT_EVENT_DEVICE_ADDED: {
+				swl_input_dev_t *swl_dev = calloc(1, sizeof(swl_input_dev_t));
+				wl_signal_init(&swl_dev->button);
+				wl_signal_init(&swl_dev->key);
+				wl_signal_init(&swl_dev->motion);
+				/*Inform Compositor
+				 *It can store this device if it wishes
+				 *Or just bind listeners to it
+				 */
+				wl_signal_emit(&libinput->common.new_input, swl_dev);
+				libinput_device_set_user_data(device, swl_dev);
+				break;
+			}
+			case LIBINPUT_EVENT_KEYBOARD_KEY: {
+				keyboard = libinput_event_get_keyboard_event(event);
+				input = libinput_device_get_user_data(device);
+				swl_key_event_t key = { 0 };
+
+				key.key = libinput_event_keyboard_get_key(keyboard);
+				key.time = libinput_event_keyboard_get_time(keyboard);
+				key.state = libinput_event_keyboard_get_key_state(keyboard);
+				key.device = input;
+				wl_signal_emit(&input->key, &key);
+				break;
+			}
+			case LIBINPUT_EVENT_POINTER_MOTION: {
+				swl_motion_event_t motion = { 0 };
+				pointer = libinput_event_get_pointer_event(event);
+				input = libinput_device_get_user_data(device);
+				motion.dx = libinput_event_pointer_get_dx(pointer);
+				motion.dy = libinput_event_pointer_get_dy(pointer);
+				wl_signal_emit(&input->motion, &motion);
+				break;
+			}
+			case LIBINPUT_EVENT_POINTER_BUTTON: {
+
+			}
+			case LIBINPUT_EVENT_DEVICE_REMOVED: {
+				/*TODO;*/
+				break;
+			}
+			default: {
+				swl_warn("Unhanled Event: %d\n", type);
+				break;
+			}
+		}
 	}
 
 	return 0;

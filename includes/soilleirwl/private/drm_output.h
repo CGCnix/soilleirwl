@@ -20,5 +20,3 @@ typedef struct swl_drm_output {
 	int drm_fd;
 	struct gbm_device *gbm;
 } swl_drm_output_t;
-
-

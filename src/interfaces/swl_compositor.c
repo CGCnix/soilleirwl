@@ -84,8 +84,9 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 		return;
 	}
 	
-	if(!surface->pending.buffer && strcmp(wl_resource_get_class(surface->role), "xdg_surface") == 0) {
+	if(!surface->surface_configured && !surface->pending.buffer && strcmp(wl_resource_get_class(surface->role), "xdg_surface") == 0) {
 		xdg_surface_send_configure(surface->role, wl_display_next_serial(wl_client_get_display(client)));
+		surface->surface_configured = 1;
 		return;
 	}
 

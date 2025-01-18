@@ -1,4 +1,6 @@
+#include "soilleirwl/allocator/gbm.h"
 #include "soilleirwl/backend/backend.h"
+#include "soilleirwl/interfaces/swl_input_device.h"
 #include <soilleirwl/interfaces/swl_output.h>
 #include <soilleirwl/logger.h>
 #include <soilleirwl/renderer.h>
@@ -25,7 +27,6 @@ typedef struct swl_x11_output {
 	xcb_gcontext_t gc;
 	xcb_pixmap_t pixmaps[2];
 	struct gbm_device *dev;
-	struct gbm_bo *bos[2];
 } swl_x11_output_t;
 
 typedef struct swl_x11_backend {
@@ -35,6 +36,7 @@ typedef struct swl_x11_backend {
 	xcb_screen_t *screen;
 
 	swl_x11_output_t *output;
+	swl_input_dev_t input;
 
 	struct wl_signal new_output;
 	struct wl_signal new_input;
@@ -157,12 +159,13 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 	x11->output->dev = gbm_create_device(fds[0]);
 	xcb_present_select_input(x11->connection, evid, out->window, XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
 
-	swl_x11_create_fb(x11->output->dev, &x11->output->bos[0], &x11->output->common.buffer[0], out->common.mode.width, out->common.mode.height);
-	swl_x11_create_fb(x11->output->dev, &x11->output->bos[1], &x11->output->common.buffer[1], out->common.mode.width, out->common.mode.height);
+	x11->output->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
+	x11->output->common.buffer[0] = swl_gbm_buffer_create(x11->output->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
+	x11->output->common.buffer[1] = swl_gbm_buffer_create(x11->output->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
 
 	for(uint32_t i = 0; i < 2; i++) {
 		x11->output->pixmaps[i] = xcb_generate_id(x11->connection);
-		xcb_dri3_pixmap_from_buffer(x11->connection, x11->output->pixmaps[i], x11->output->window, x11->output->common.buffer[i].size, out->common.mode.width, out->common.mode.height, x11->output->common.buffer[i].pitch, 24, 32, gbm_bo_get_fd(x11->output->bos[i]));
+		xcb_dri3_pixmap_from_buffer(x11->connection, x11->output->pixmaps[i], x11->output->window, x11->output->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, x11->output->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(x11->output->common.buffer[i]->bo));
 	}
 
 	wl_signal_init(&out->common.destroy);
@@ -222,10 +225,18 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			}
 			case XCB_KEY_PRESS: {
 				xcb_key_press_event_t *kp = (void*)ev;
+				swl_key_event_t key;
+				key.state = 1;
+				key.key = kp->detail - 8;
+				wl_signal_emit(&x11->input.key, &key);
 				break;
 			}
 			case XCB_KEY_RELEASE: {
 				xcb_key_press_event_t *kp = (void*)ev;
+				swl_key_event_t key;
+				key.state = 0;
+				key.key = kp->detail - 8;
+				wl_signal_emit(&x11->input.key, &key);
 				break;
 			}
 			case XCB_CONFIGURE_NOTIFY: {
@@ -239,14 +250,23 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 
 				for(uint32_t i = 0; i < 2; ++i) {
 					x11->output->pixmaps[i] = xcb_generate_id(x11->connection);
-					swl_x11_destroy_fb(&x11->output->bos[i], &x11->output->common.buffer[i]);
-					swl_x11_create_fb(x11->output->dev, &x11->output->bos[i], &x11->output->common.buffer[i], x11->output->common.mode.width, x11->output->common.mode.height);
-					xcb_dri3_pixmap_from_buffer(x11->connection, x11->output->pixmaps[i], x11->output->window, x11->output->common.buffer[i].size, out->common.mode.width, out->common.mode.height, x11->output->common.buffer[i].pitch, 24, 32, gbm_bo_get_fd(x11->output->bos[i]));
+
+					swl_gbm_buffer_destroy(x11->output->common.buffer[i]);
+					x11->output->common.buffer[i] = swl_gbm_buffer_create(x11->output->dev, x11->output->common.mode.width, x11->output->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
+					xcb_dri3_pixmap_from_buffer(x11->connection, x11->output->pixmaps[i], x11->output->window, x11->output->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, x11->output->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(x11->output->common.buffer[i]->bo));
 				}
 				break;
 			}
 			case XCB_MOTION_NOTIFY: {
 				xcb_motion_notify_event_t *motion = (void*)ev;
+				swl_motion_event_t pointer;
+				pointer.absx = motion->event_x;
+				pointer.absy = motion->event_y;
+
+				pointer.dx = motion->event_x - px;
+				pointer.dy = motion->event_y - py;
+				
+				wl_signal_emit(&x11->input.motion, &pointer);
 
 				px = motion->event_x;
 				py = motion->event_y;
@@ -287,11 +307,18 @@ int swl_x11_backend_stop(swl_backend_t *backend) {
 	return 0;
 }
 
+int swl_x11_backend_switch_vt(swl_backend_t *backend, int vt) {
+	return 0;
+}
+
+int swl_x11_backend_move_cursor(swl_backend_t *backend, int32_t x, int32_t y) {
+	return 0;
+}
 
 int swl_x11_backend_start(swl_backend_t *backend) {
 	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
 	wl_signal_emit(&x11->new_output, x11->output);
-
+	wl_signal_emit(&x11->new_input, &x11->input);
 
 	wl_signal_emit(&x11->output->common.frame, x11->output);
 	xcb_present_pixmap(x11->connection, 
@@ -321,7 +348,7 @@ void swl_x11_backend_destroy(swl_backend_t *backend) {
 
 	for(uint32_t i = 0; i < 2; ++i) {
 		xcb_free_pixmap(x11->connection, x11->output->pixmaps[i]);
-		swl_x11_destroy_fb(&x11->output->bos[i], NULL);
+		swl_gbm_buffer_destroy(x11->output->common.buffer[i]);
 	}
 	gbm_device_destroy(x11->output->dev);
 	x11->output->common.renderer->destroy(x11->output->common.renderer);
@@ -393,6 +420,9 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 		}
 	}
 
+	wl_signal_init(&x11->input.key);
+	wl_signal_init(&x11->input.button);
+	wl_signal_init(&x11->input.motion);
 	wl_signal_init(&x11->new_output);
 	wl_signal_init(&x11->new_input);
 	wl_signal_init(&x11->activate);
@@ -410,5 +440,7 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 	x11->backend.BACKEND_STOP = swl_x11_backend_stop;
 	x11->backend.BACKEND_START = swl_x11_backend_start;
 	x11->backend.BACKEND_GET_RENDERER = swl_x11_backend_get_renderer;
+	x11->backend.BACKEND_SWITCH_VT = swl_x11_backend_switch_vt;
+	x11->backend.BACKEND_MOVE_CURSOR = swl_x11_backend_move_cursor;
 	return (swl_backend_t*)x11;
 }
