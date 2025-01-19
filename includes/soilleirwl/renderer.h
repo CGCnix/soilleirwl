@@ -54,9 +54,11 @@ typedef swl_renderer_target_t *(*SWL_RENDER_CREATE_TARGET)(swl_renderer_t *rende
 typedef void (*SWL_RENDER_DESTROY_TEXTURE)(swl_renderer_t *renderer, swl_texture_t *texture);
 typedef void (*SWL_RENDER_TEXTURE_DRAW)(swl_renderer_t *renderer, swl_texture_t *texture, int32_t x, int32_t y);
 typedef void (*SWL_RENDER_DESTROY)(swl_renderer_t *renderer);
+typedef void (*SWL_RENDERER_COPY_FROM)(swl_renderer_t *renderer, void *dst, uint32_t height, uint32_t width, uint32_t x, uint32_t y, uint32_t format);
 
 struct swl_renderer {
 	SWL_RENDER_BEGIN begin;
+	SWL_RENDERER_COPY_FROM copy_from;
 	SWL_RENDER_END end;
 	SWL_RENDER_CLEAR clear;
 	SWL_RENDER_ATTACH_OUTPUT attach_output;

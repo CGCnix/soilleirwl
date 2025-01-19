@@ -1,3 +1,4 @@
+config.mk
 xdg-shell.h
 xdg-shell.c
 xdg-shell-server.c

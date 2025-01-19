@@ -158,8 +158,13 @@ void zswl_screenshot_manager_copy(struct wl_client *client,
 		int32_t x, int32_t y) {
 	swl_output_t *swl_output = wl_resource_get_user_data(output);
 	struct wl_shm_buffer *shm_buffer = wl_shm_buffer_get(buffer);
+	void *data = wl_shm_buffer_get_data(shm_buffer);
 
-	swl_output->copy(swl_output, shm_buffer, width, height, x, y);
+	swl_output->renderer->attach_target(swl_output->renderer, swl_output->targets[swl_output->front_buffer]);
+	swl_output->renderer->begin(swl_output->renderer);
+	swl_output->renderer->copy_from(swl_output->renderer, data, wl_shm_buffer_get_height(shm_buffer), wl_shm_buffer_get_width(shm_buffer),
+			x, y, wl_shm_buffer_get_format(shm_buffer));
+	swl_output->renderer->end(swl_output->renderer);
 }
 
 static struct zswl_screenshot_manager_interface zswl_screenshot_impl = {
