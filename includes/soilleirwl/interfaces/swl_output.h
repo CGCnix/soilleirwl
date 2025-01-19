@@ -63,6 +63,7 @@ struct swl_output {
 	swl_texture_t *background;
 
 	swl_gbm_buffer_t **buffer;
+	swl_renderer_target_t **targets;
 	int front_buffer;
 
 	struct wl_signal frame; /*Inform the compositor this output wants a frame*/

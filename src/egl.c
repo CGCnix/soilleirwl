@@ -1,3 +1,4 @@
+#include "soilleirwl/allocator/gbm.h"
 #include "soilleirwl/interfaces/swl_output.h"
 #include <soilleirwl/renderer.h>
 #include <soilleirwl/logger.h>
@@ -32,10 +33,10 @@ typedef struct swl_egl_functions {
 } swl_egl_functions_t;
 
 typedef struct swl_egl_render_target {
-	swl_output_t *output;
+	swl_gbm_buffer_t *buffer;
 
-	EGLImage images[2]; /*Front and back*/
-	GLuint rbo[2], fbo[2];
+	EGLImage image;
+	GLuint rbo, fbo;
 	
 	struct wl_list link;
 } swl_egl_renderer_target_t;
@@ -262,16 +263,6 @@ int swl_gl_check_ext() {
 	return 0;
 }
 
-swl_egl_renderer_target_t *swl_egl_get_target(swl_output_t *output, struct wl_list *list) {
-	swl_egl_renderer_target_t *target;
-	wl_list_for_each(target, list, link) {
-		if(output == target->output) {
-			return target;
-		}
-	}
-	return NULL;
-}
-
 EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint height, EGLint width, EGLint stride, EGLint offset) {
 	EGLint attr[15];
 	attr[0] = EGL_WIDTH;
@@ -294,50 +285,69 @@ EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint hei
 	return egl->funcs.EGLCreateImageKHR(egl->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attr);
 }
 
-void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
+swl_renderer_target_t *swl_egl_create_target(swl_renderer_t *render, swl_gbm_buffer_t *buffer) {
 	swl_egl_renderer_t *egl;
 	swl_egl_renderer_target_t *target;
 
 	egl = (swl_egl_renderer_t*)render;
 	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 			egl->ctx);
-	if(egl->current) {
-		glDeleteFramebuffers(2, egl->current->fbo);
-		glDeleteRenderbuffers(2, egl->current->rbo);
-		eglDestroyImage(egl->display, egl->current->images[0]);
-		eglDestroyImage(egl->display, egl->current->images[1]);
-		free(egl->current);
-		egl->current = NULL;
-	}
-
+	
 	/*Create it's render objects now then*/
 	target = calloc(1, sizeof(swl_egl_renderer_target_t));
 	int dmabuf;
-	target->output = output;
-	for(uint32_t buf = 0; buf < 2; ++buf) {
-		drmPrimeHandleToFD(output->buffer[buf]->render, output->buffer[buf]->handle, DRM_CLOEXEC, &dmabuf);
-	target->images[buf] = swl_egl_import_dma_buf(egl, dmabuf, output->buffer[buf]->height,
-		output->buffer[buf]->width, output->buffer[buf]->pitch, 0);
-		close(dmabuf);
+	drmPrimeHandleToFD(buffer->render, buffer->handle, DRM_CLOEXEC, &dmabuf);
+	
+	target->buffer = buffer;
+	target->image = swl_egl_import_dma_buf(egl, dmabuf, buffer->height,
+		buffer->width, buffer->pitch, 0);
+	close(dmabuf);
 
-		glGenRenderbuffers(1, &target->rbo[buf]);
-		glBindRenderbuffer(GL_RENDERBUFFER, target->rbo[buf]);
-		
-		egl->funcs.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, target->images[buf]);
-		glBindRenderbuffer(GL_RENDERBUFFER, 0);
-		glGenFramebuffers(1, &target->fbo[buf]);
-		glBindFramebuffer(GL_FRAMEBUFFER, target->fbo[buf]);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-		GL_RENDERBUFFER, target->rbo[buf]);
-		glFlush();
-		glFinish();
-		GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		if(fb_status != GL_FRAMEBUFFER_COMPLETE) {
-			swl_error("Framebuffer %p %d error egl %d\n", target->images[buf], buf, fb_status);
-			exit(1);
-		}
+	glGenRenderbuffers(1, &target->rbo);
+	glBindRenderbuffer(GL_RENDERBUFFER, target->rbo);
+	
+	egl->funcs.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, target->image);
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	glGenFramebuffers(1, &target->fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, target->fbo);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+	GL_RENDERBUFFER, target->rbo);
+	glFlush();
+	glFinish();
+	GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if(fb_status != GL_FRAMEBUFFER_COMPLETE) {
+		swl_error("Framebuffer %p %d error egl %d\n", target->image, buffer, fb_status);
+		exit(1);
 	}
+
+	/*Make this target the current target*/ 
+	return (void*)target;
+}
+
+void swl_egl_attach_target(swl_renderer_t *render, swl_renderer_target_t *target) {
+	swl_egl_renderer_t *egl;
+
+	egl = (swl_egl_renderer_t*)render;
+
+	egl->current = (swl_egl_renderer_target_t*)target;
+}
+
+void swl_egl_destroy_target(swl_renderer_t *render, swl_renderer_target_t *target) {
+	swl_egl_renderer_t *egl;
+	swl_egl_renderer_target_t *egl_target = (swl_egl_renderer_target_t*)target;
+	egl = (swl_egl_renderer_t*)render;
+	
+	glDeleteFramebuffers(1, &egl_target->fbo);
+	glDeleteRenderbuffers(1, &egl_target->rbo);
+	eglDestroyImage(egl->display, egl_target->image);
+	free(target);
+}
+
+
+void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
+	swl_egl_renderer_t *egl;
+	swl_egl_renderer_target_t *target;
 
 	/*Make this target the current target*/ 
 	egl->current = target;
@@ -345,13 +355,13 @@ void swl_egl_output_attach(swl_renderer_t *render, swl_output_t *output) {
 
 void swl_egl_begin(swl_renderer_t *renderer) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)renderer;
-	uint32_t front = egl->current->output->front_buffer;
+
 	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 			egl->ctx);
-	glBindFramebuffer(GL_FRAMEBUFFER, egl->current->fbo[front]);
+	glBindFramebuffer(GL_FRAMEBUFFER, egl->current->fbo);
 
-	glViewport(0, 0, egl->current->output->buffer[front]->width,
-			egl->current->output->buffer[front]->height);
+	glViewport(0, 0, egl->current->buffer->width,
+			egl->current->buffer->height);
 
 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
@@ -424,8 +434,8 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 		return;
 	}
 
-	uint32_t height = egl->current->output->mode.height;
-	uint32_t width = egl->current->output->mode.width;
+	uint32_t height = egl->current->buffer->height;
+	uint32_t width = egl->current->buffer->width;
 
 	glEnable(GL_BLEND);	
 	GLfloat verts[] = {
@@ -477,7 +487,7 @@ void swl_egl_renderer_destroy(swl_renderer_t *renderer) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)renderer;
 
 	glDeleteProgram(egl->texture_shader);
-
+	/*
 	if(egl->current) {
 		glDeleteFramebuffers(2, egl->current->fbo);
 		glDeleteRenderbuffers(2, egl->current->rbo);
@@ -486,7 +496,7 @@ void swl_egl_renderer_destroy(swl_renderer_t *renderer) {
 		free(egl->current);
 		egl->current = NULL;
 	}
-
+	*/
 	eglDestroyContext(egl->display, egl->current);
 	eglTerminate(egl->display);
 	free(egl);
@@ -521,6 +531,9 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	egl->common.destroy_texture = swl_egl_destroy_texture;
 	egl->common.draw_texture = swl_egl_draw_texture;
 	egl->common.destroy = swl_egl_renderer_destroy;
+	egl->common.create_target = swl_egl_create_target;
+	egl->common.destroy_target = swl_egl_destroy_target;
+	egl->common.attach_target = swl_egl_attach_target;
 	wl_list_init(&egl->targets);
 
 	/*Get client extension Functions*/

@@ -759,7 +759,7 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	swl_xdg_toplevel_t *toplevel;
 	swl_client_t *client;
 	soilleir_server_t *server = soil_output->server;
-	output->renderer->attach_output(output->renderer, output);
+	output->renderer->attach_target(output->renderer, output->targets[output->front_buffer]);
 	output->renderer->begin(output->renderer);
 	
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
@@ -800,8 +800,6 @@ static void soilleir_new_output(struct wl_listener *listener, void *data) {
 	wl_signal_add(&output->destroy, &soil_output->destroy);
 
 	wl_list_insert(&server->outputs, &soil_output->link);
-
-	output->renderer->attach_output(output->renderer, output);
 }
 
 
