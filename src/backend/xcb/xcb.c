@@ -160,8 +160,12 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 	xcb_present_select_input(x11->connection, evid, out->window, XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
 
 	x11->output->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
+	x11->output->common.targets = calloc(2, sizeof(swl_renderer_target_t*));
+	
 	x11->output->common.buffer[0] = swl_gbm_buffer_create(x11->output->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
 	x11->output->common.buffer[1] = swl_gbm_buffer_create(x11->output->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
+	x11->output->common.targets[0] = x11->output->common.renderer->create_target(x11->output->common.renderer, x11->output->common.buffer[0]);
+	x11->output->common.targets[1] = x11->output->common.renderer->create_target(x11->output->common.renderer, x11->output->common.buffer[1]);
 
 	for(uint32_t i = 0; i < 2; i++) {
 		x11->output->pixmaps[i] = xcb_generate_id(x11->connection);
@@ -250,9 +254,11 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 
 				for(uint32_t i = 0; i < 2; ++i) {
 					x11->output->pixmaps[i] = xcb_generate_id(x11->connection);
-
+					
+					x11->output->common.renderer->destroy_target(x11->output->common.renderer, x11->output->common.targets[i]);
 					swl_gbm_buffer_destroy(x11->output->common.buffer[i]);
 					x11->output->common.buffer[i] = swl_gbm_buffer_create(x11->output->dev, x11->output->common.mode.width, x11->output->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
+					x11->output->common.targets[i] = x11->output->common.renderer->create_target(x11->output->common.renderer, x11->output->common.buffer[i]);
 					xcb_dri3_pixmap_from_buffer(x11->connection, x11->output->pixmaps[i], x11->output->window, x11->output->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, x11->output->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(x11->output->common.buffer[i]->bo));
 				}
 				break;

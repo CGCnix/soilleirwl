@@ -1,6 +1,7 @@
 #pragma once
+#include "soilleirwl/allocator/gbm.h"
 typedef struct swl_renderer swl_renderer_t;
-
+typedef struct swl_renderer_target swl_renderer_target_t;
 typedef struct swl_texture swl_texture_t;
 
 #include <soilleirwl/interfaces/swl_output.h>
@@ -46,7 +47,10 @@ typedef void (*SWL_RENDER_BEGIN)(swl_renderer_t *renderer);
 typedef void (*SWL_RENDER_END)(swl_renderer_t *renderer);
 typedef void (*SWL_RENDER_CLEAR)(swl_renderer_t *renderer, float r, float g, float b, float a);
 typedef void (*SWL_RENDER_ATTACH_OUTPUT)(swl_renderer_t *renderer, swl_output_t *output);
+typedef void (*SWL_RENDER_ATTACH_TARGET)(swl_renderer_t *renderer, swl_renderer_target_t *target);
+typedef void (*SWL_RENDER_DESTROY_TARGET)(swl_renderer_t *renderer, swl_renderer_target_t *target);
 typedef swl_texture_t *(*SWL_RENDER_CREATE_TEXTURE)(swl_renderer_t *renderer, uint32_t width, uint32_t height, uint32_t format, void *data);
+typedef swl_renderer_target_t *(*SWL_RENDER_CREATE_TARGET)(swl_renderer_t *renderer, swl_gbm_buffer_t *buffer);
 typedef void (*SWL_RENDER_DESTROY_TEXTURE)(swl_renderer_t *renderer, swl_texture_t *texture);
 typedef void (*SWL_RENDER_TEXTURE_DRAW)(swl_renderer_t *renderer, swl_texture_t *texture, int32_t x, int32_t y);
 typedef void (*SWL_RENDER_DESTROY)(swl_renderer_t *renderer);
@@ -56,6 +60,9 @@ struct swl_renderer {
 	SWL_RENDER_END end;
 	SWL_RENDER_CLEAR clear;
 	SWL_RENDER_ATTACH_OUTPUT attach_output;
+	SWL_RENDER_ATTACH_TARGET attach_target;
+	SWL_RENDER_CREATE_TARGET create_target;
+	SWL_RENDER_DESTROY_TARGET destroy_target;
 	SWL_RENDER_CREATE_TEXTURE create_texture;
 	SWL_RENDER_DESTROY_TEXTURE destroy_texture;
 	SWL_RENDER_TEXTURE_DRAW draw_texture;

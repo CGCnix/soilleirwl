@@ -28,6 +28,7 @@ typedef struct swl_drm_output {
 
 	uint32_t fb_id[2];
 	swl_gbm_buffer_t *cursor;
+	swl_renderer_target_t *cursor_target;
 
 	drmModeCrtcPtr original_crtc;
 	drmModeConnectorPtr connector;
@@ -297,7 +298,7 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	wl_signal_init(&output->destroy);
 }
 
-swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeRes *res, drmModeConnector *conn) {
+swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeRes *res, drmModeConnector *conn, swl_renderer_t *renderer) {
 	swl_drm_output_t *output = calloc(1, sizeof(swl_drm_output_t));
 	uint32_t width = conn->modes->hdisplay;
 	uint32_t height = conn->modes->vdisplay;
@@ -306,10 +307,21 @@ swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeR
 	swl_output_init_common(fd, conn, &output->common);
 	output->original_crtc = swl_drm_get_conn_crtc(fd, conn, res);
 
+	output->common.renderer = renderer;
 	output->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
 	output->common.buffer[0] = swl_gbm_buffer_create(gbm, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING, 32);
 	output->common.buffer[1] = swl_gbm_buffer_create(gbm, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING, 32);
 	output->cursor = swl_gbm_buffer_create(gbm, 64, 64, GBM_FORMAT_XRGB8888, GBM_BO_USE_CURSOR | GBM_BO_USE_RENDERING, 32);
+	
+	output->common.targets = calloc(2, sizeof(swl_renderer_target_t*));
+	output->common.targets[0] = output->common.renderer->create_target(output->common.renderer, output->common.buffer[0]);
+	output->common.targets[1] = output->common.renderer->create_target(output->common.renderer, output->common.buffer[1]);
+
+	output->cursor_target =	output->common.renderer->create_target(output->common.renderer, output->cursor);
+	output->common.renderer->attach_target(output->common.renderer, output->cursor_target);
+	output->common.renderer->begin(output->common.renderer);
+	output->common.renderer->clear(output->common.renderer, 1.0f, 0.0f, 0.0f, 0.0f);
+	output->common.renderer->end(output->common.renderer);
 
 	ret = drmModeAddFB(fd, width, height, 24, 32, output->common.buffer[0]->pitch, output->common.buffer[0]->handle, &output->fb_id[0]);
 	ret = drmModeAddFB(fd, width, height, 24, 32, output->common.buffer[1]->pitch, output->common.buffer[1]->handle, &output->fb_id[1]);
@@ -335,7 +347,7 @@ void swl_drm_outputs_destroy(int fd, struct wl_list *list) {
 	}
 }
 
-int drm_create_outputs(struct gbm_device *gbm, int fd, drmModeRes *res, struct wl_list *list) {
+int drm_create_outputs(struct gbm_device *gbm, int fd, drmModeRes *res, swl_renderer_t *renderer, struct wl_list *list) {
 	uint32_t count;
 	drmModeConnector *connector = NULL;
 	swl_drm_output_t *output;
@@ -346,7 +358,7 @@ int drm_create_outputs(struct gbm_device *gbm, int fd, drmModeRes *res, struct w
 			swl_warn("Failed to get connector %d\n", res->connectors[count]);
 			continue;
 		} else if(connector->connection == DRM_MODE_CONNECTED) {
-			output = swl_drm_output_create(gbm, fd, res, connector);
+			output = swl_drm_output_create(gbm, fd, res, connector, renderer);
 			wl_list_insert(list, &output->link);
 			continue;
 		}
@@ -502,6 +514,8 @@ void swl_drm_activate(struct wl_listener *listener, void *data) {
 		drmModeSetCrtc(drm->fd, output->original_crtc->crtc_id, output->fb_id[0], 
 				0, 0, &output->connector->connector_id, 1, output->connector->modes);
 		output->common.front_buffer ^= 1;
+		drmModeSetCursor(drm->fd, output->original_crtc->crtc_id, output->cursor->handle,
+				output->cursor->width, output->cursor->height);
 		drmModePageFlip(drm->fd, output->original_crtc->crtc_id, 
 			output->fb_id[output->common.front_buffer], DRM_MODE_PAGE_FLIP_EVENT, output);
 		output->pending = true;
@@ -538,15 +552,15 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 	wl_list_init(&drm->outputs);
 	drm->gbm = gbm_create_device(drm->fd);
 
-	drm_create_outputs(drm->gbm, drm->fd, res, &drm->outputs);
-	drmModeFreeResources(res);
-	drm->display = display;
-	wl_signal_init(&drm->common.new_output);
-	/*Create A renderer for this backend*/
 	drm->renderer = swl_egl_renderer_create_by_fd(drm->fd);
 	if(drm->renderer == NULL) {
 		return NULL;
 	}
+
+	drm_create_outputs(drm->gbm, drm->fd, res, drm->renderer, &drm->outputs);
+	drmModeFreeResources(res);
+	drm->display = display;
+	wl_signal_init(&drm->common.new_output);
 
 	drm->activate.notify = swl_drm_activate;
 	drm->deactivate.notify = swl_drm_deactivate;
