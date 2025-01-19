@@ -151,14 +151,6 @@ int swl_drm_destroy_fb(int fd, swl_buffer_t *bo) {
 	return 0;
 }
 
-/*TODO: this could really be done by the renderer/should be done by the renderer as it would
- * remove the need to have the buffer physically mmaped
- */
-void swl_output_copy(swl_output_t *output, struct wl_shm_buffer *buffer, int32_t width, int32_t height, int32_t xoff, int32_t yoff) {
-	swl_drm_output_t *drm_output = (swl_drm_output_t*)output;
-
-}
-
 typedef struct {
 	uint16_t pixel_clock;
 	uint8_t hactive_lsb;
@@ -293,7 +285,6 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	
 	
 	//output->draw_texture = render_surface_texture; 
-	output->copy = swl_output_copy;
 	wl_signal_init(&output->frame);
 	wl_signal_init(&output->destroy);
 }

@@ -64,6 +64,22 @@ int swl_gl_ext_present(const GLubyte *extensions, const char *desired) {
 }
 
 
+GLenum external_format_to_gl(uint32_t format) {
+	switch (format) {
+		case WL_SHM_FORMAT_XRGB8888:
+		case WL_SHM_FORMAT_ARGB8888:
+		case DRM_FORMAT_XRGB8888:
+		case DRM_FORMAT_ARGB8888:
+			return GL_BGRA_EXT;
+		case DRM_FORMAT_BGRA8888:
+		case DRM_FORMAT_BGRX8888:
+			return GL_RGBA;
+		default:
+			swl_debug("Unknown Format Assuming GL_BGRA_EXT\n");
+			return GL_BGRA_EXT;
+	}
+}
+
 uint32_t swl_egl_msgtype_to_log_level(EGLint type) {
 	switch(type) {
 		case EGL_DEBUG_MSG_ERROR_KHR:
@@ -285,6 +301,12 @@ EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint hei
 	return egl->funcs.EGLCreateImageKHR(egl->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attr);
 }
 
+void swl_egl_copy_from(swl_renderer_t *renderer, void *dst, uint32_t height, uint32_t width, uint32_t x, uint32_t y, uint32_t format) {
+	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)renderer;
+
+	glReadPixels(x, y, width, height, external_format_to_gl(format), GL_UNSIGNED_BYTE, dst);
+}
+
 swl_renderer_target_t *swl_egl_create_target(swl_renderer_t *render, swl_gbm_buffer_t *buffer) {
 	swl_egl_renderer_t *egl;
 	swl_egl_renderer_target_t *target;
@@ -384,22 +406,6 @@ typedef struct swl_egl_texture {
 	GLuint id;
 	int32_t width, height;
 } swl_egl_texture_t;
-
-GLenum external_format_to_gl(uint32_t format) {
-	switch (format) {
-		case WL_SHM_FORMAT_XRGB8888:
-		case WL_SHM_FORMAT_ARGB8888:
-		case DRM_FORMAT_XRGB8888:
-		case DRM_FORMAT_ARGB8888:
-			return GL_BGRA_EXT;
-		case DRM_FORMAT_BGRA8888:
-		case DRM_FORMAT_BGRX8888:
-			return GL_RGBA;
-		default:
-			swl_debug("Unknown Format Assuming GL_BGRA_EXT\n");
-			return GL_BGRA_EXT;
-	}
-}
 
 swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width, 
 		uint32_t height, uint32_t format, void *data) {
@@ -546,6 +552,7 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	egl->common.create_target = swl_egl_create_target;
 	egl->common.destroy_target = swl_egl_destroy_target;
 	egl->common.attach_target = swl_egl_attach_target;
+	egl->common.copy_from = swl_egl_copy_from;
 	wl_list_init(&egl->targets);
 
 	/*Get client extension Functions*/
