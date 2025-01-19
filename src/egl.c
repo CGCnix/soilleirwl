@@ -436,18 +436,30 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 
 	uint32_t height = egl->current->buffer->height;
 	uint32_t width = egl->current->buffer->width;
+	int32_t twidth = texture->width;
+	int32_t theight = texture->height;
+
+	if(x < 0) {
+		twidth += x;
+		x = 0;
+	}
+
+	if(y < 0) {
+		theight += y;
+		if(theight < 0) theight = 0;
+		y = 0;
+	}
 
 	glEnable(GL_BLEND);	
 	GLfloat verts[] = {
 		//X|Y
 		/*TODO: use the values from glViewport*/
-		normalize(0, width, x + texture->width), normalize(0, height, y),
+		normalize(0, width, x + twidth), normalize(0, height, y),
 		normalize(0, width, x), normalize(0, height, y),
-		normalize(0, width, x + texture->width), normalize(0, height, y + texture->height),
-		normalize(0, width, x), normalize(0, height, y + texture->height),
-		
+		normalize(0, width, x + twidth), normalize(0, height, y + theight),
+		normalize(0, width, x), normalize(0, height, y + theight),
 	};
-
+	
 	GLfloat tex_coords[] = {
 		1.0f, 0.0f,
 		0.0f, 0.0f,
