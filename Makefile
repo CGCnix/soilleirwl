@@ -3,11 +3,11 @@
 include config.mk
 
 TARGET=soilleir
-COBJS=src/egl.o src/backend/swl/input/libinput.o src/swl-screenshot-server.o src/backend/swl/drm/libdrm.o src/backend/swl/hotplug/libudev.o src/backend/swl/sessions/libseat.o src/xdg-shell-server.o tests/server.o src/logger.o src/interfaces/swl_compositor.o src/interfaces/swl_data_dev_man.o src/backend/xcb/xcb.o src/backend/backend.o src/backend/swl/tty_backend.o src/allocator/gbm.o
+COBJS=src/egl.o src/backend/swl/input/libinput.o src/swl-screenshot-server.o src/backend/swl/drm/libdrm.o src/backend/swl/hotplug/libudev.o src/backend/swl/sessions/libseat.o src/xdg-shell-server.o tests/server.o src/logger.o src/interfaces/swl_compositor.o src/interfaces/swl_data_dev_man.o src/backend/xcb/xcb.o src/backend/backend.o src/backend/swl/tty_backend.o src/allocator/gbm.o src/interfaces/swl_seat.c
 CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm glesv2 egl xcb xcb-dri3 xcb-present`
 CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl glesv2 xcb xcb-dri3 xcb-present`
 
-all: src/swl-screenshot-server.h src/xdg-shell-server.h $(TARGET) screenshot ipc-cli
+all: src/swl-screenshot-server.h src/xdg-shell-server.h src/linux-dmabuf-server.h src/linux-dmabuf-server.c $(TARGET) screenshot ipc-cli
 
 ipc-cli: ./tests/ipc.c
 	$(CC) ./tests/ipc.c `pkg-config --cflags libdrm libpng` -o $@ `pkg-config --libs libpng`
@@ -32,6 +32,13 @@ src/xdg-shell-server.h:
 
 src/xdg-shell-server.c:
 	$(WAYLAND_SCANNER) private-code $(WAYLAND_DIR)/stable/xdg-shell/xdg-shell.xml $@
+
+src/linux-dmabuf-server.h:
+	$(WAYLAND_SCANNER) server-header  $(WAYLAND_DIR)/stable/linux-dmabuf/linux-dmabuf-v1.xml $@
+
+src/linux-dmabuf-server.c:
+	$(WAYLAND_SCANNER) private-code $(WAYLAND_DIR)/stable/linux-dmabuf/linux-dmabuf-v1.xml $@
+
 
 .c.o:
 	$(CC) -c $(CLIBSFLAGS) $(CFLAGS) -o $@ $<

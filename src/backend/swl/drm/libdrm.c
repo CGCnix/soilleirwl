@@ -9,7 +9,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <wayland-client-protocol.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 #include <wayland-util.h>
@@ -82,73 +81,6 @@ drmModeCrtc *swl_drm_get_conn_crtc(int fd, drmModeConnector *conn, drmModeRes *r
 		exit(1);
 	}
 	return crtc;
-}
-
-int swl_drm_create_fb(int fd, swl_buffer_t *bo, uint32_t width, uint32_t height) {
-	int ret;
-	bo->width = width;
-	bo->height = height;
-	bo->render = fd;
-	swl_debug("DRM FD: %d\n", fd);
-	if(drmGetNodeTypeFromFd(fd) != DRM_NODE_RENDER) {
-		swl_debug("Control Node\n");
-	} else {
-		swl_debug("Render Node\n");
-	}
-	if(!bo) {
-		swl_error("Invalid input create fb\n");
-		return -1;
-	}
-
-	ret = drmModeCreateDumbBuffer(fd, width, height, 32, 0, &bo->handle, &bo->pitch, &bo->size);
-	if(ret) {
-		swl_error("Unable to create drmModeCreateDumbBuffer %m\n");
-		return -1;
-	}
-
-	ret = drmModeAddFB(fd, width, height, 24, 32, bo->pitch, bo->handle, &bo->fb_id);
-	if(ret) {
-		swl_error("Unable to add fb to drm card\n");
-		goto error_destroy;
-	}
-
-	ret = drmModeMapDumbBuffer(fd, bo->handle, &bo->offset);
-	if(ret) {
-		swl_error("Unable to map dumb buffer\n");
-		goto error_fb;
-	}
-
-	bo->data = mmap(NULL, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bo->offset);
-	if(bo->data == MAP_FAILED) {
-		swl_error("MMAP failed\n");
-		goto error_fb;
-	}
-
-	return 0;
-
-	error_fb:
-	drmModeRmFB(fd, bo->fb_id);
-	error_destroy:
-	drmModeDestroyDumbBuffer(fd, bo->handle);
-	return ret;
-}
-
-
-int swl_drm_destroy_fb(int fd, swl_buffer_t *bo) {
-	int ret;
-
-	if(!bo) {
-		swl_error("Invalid input create fb\n");
-		return -1;
-	}
-
-	munmap(bo->data, bo->size);
-
-	drmModeRmFB(fd, bo->fb_id);
-
-	drmModeDestroyDumbBuffer(fd, bo->handle);
-
-	return 0;
 }
 
 typedef struct {
