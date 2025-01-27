@@ -16,3 +16,5 @@ swl-screenshot-client.c
 swl-screenshot-client.h
 swl-screenshot-server.h
 swl-screenshot-server.c
+linux-dmabuf-server.h
+linux-dmabuf-server.c

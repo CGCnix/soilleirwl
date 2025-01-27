@@ -7,6 +7,8 @@
 #include <gbm.h>
 #include <soilleirwl/backend/xcb.h>
 
+#include <linux/input-event-codes.h>
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,6 +48,14 @@ typedef struct swl_x11_backend {
 	struct wl_event_source *event;
 } swl_x11_backend_t;
 
+static int16_t swl_xcb_button_to_linux(uint32_t detail) {
+	switch(detail) {
+		case XCB_BUTTON_INDEX_1: return BTN_LEFT;
+		case XCB_BUTTON_INDEX_2: return BTN_MIDDLE;
+		case XCB_BUTTON_INDEX_3: return BTN_RIGHT;
+		default: return BTN_RIGHT;
+	}
+}
 
 static void swl_output_release(struct wl_client *client, struct wl_resource *resource) {
 
@@ -276,6 +286,24 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 
 				px = motion->event_x;
 				py = motion->event_y;
+				break;
+			}
+			case XCB_BUTTON_PRESS: {
+				xcb_button_press_event_t *xcb_button = (void*)ev;
+				swl_button_event_t button = { 0 };
+				button.state = 1;
+				button.button = swl_xcb_button_to_linux(xcb_button->detail);
+				button.time = xcb_button->time;
+				wl_signal_emit(&x11->input.button, &button);
+				break;
+			}
+			case XCB_BUTTON_RELEASE: {
+				xcb_button_press_event_t *xcb_button = (void*)ev;
+				swl_button_event_t button = { 0 };
+				button.state = 0;
+				button.button = swl_xcb_button_to_linux(xcb_button->detail);
+				button.time = xcb_button->time;
+				wl_signal_emit(&x11->input.button, &button);
 				break;
 			}
 			case XCB_FOCUS_OUT: {

@@ -1,4 +1,5 @@
 #include "../src/xdg-shell-server.h"
+#include "../src/linux-dmabuf-server.h"
 #include "soilleirwl/interfaces/swl_surface.h"
 #include "soilleirwl/renderer.h"
 #include <soilleirwl/interfaces/swl_compositor.h>
@@ -45,7 +46,6 @@ static void swl_surface_handle_set_buffer_transform(struct wl_client *client,
 
 static void swl_surface_handle_attach(struct wl_client *client, struct wl_resource *surface_res, struct wl_resource *buffer, int32_t x, int32_t y) {
 	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
-
 	surface->pending.buffer = buffer;
 	surface->pending_changes |= SWL_SURFACE_PENDING_BUFFER;
 }
@@ -95,15 +95,18 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 			surface->renderer->destroy_texture(surface->renderer, surface->texture);
 			surface->texture = NULL;
 		}
+		
 		if(surface->pending.buffer) {
 			buffer = wl_shm_buffer_get(surface->pending.buffer);
 			width = wl_shm_buffer_get_width(buffer);
 			height = wl_shm_buffer_get_height(buffer);
+			wl_shm_buffer_begin_access(buffer);
 			data = wl_shm_buffer_get_data(buffer);
 		
 			surface->renderer->begin(surface->renderer);
 			surface->texture = surface->renderer->create_texture(surface->renderer, width, height, 0, data);
 			surface->renderer->end(surface->renderer);
+			wl_shm_buffer_end_access(buffer);
 			wl_buffer_send_release(surface->pending.buffer);
 		}
 	}

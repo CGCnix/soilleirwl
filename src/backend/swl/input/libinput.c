@@ -143,11 +143,19 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 				input = libinput_device_get_user_data(device);
 				motion.dx = libinput_event_pointer_get_dx(pointer);
 				motion.dy = libinput_event_pointer_get_dy(pointer);
+				motion.time = libinput_event_pointer_get_time(pointer);
 				wl_signal_emit(&input->motion, &motion);
 				break;
 			}
 			case LIBINPUT_EVENT_POINTER_BUTTON: {
-
+				swl_button_event_t button = { 0 };
+				pointer = libinput_event_get_pointer_event(event);
+				input = libinput_device_get_user_data(device);
+				button.time = libinput_event_pointer_get_time(pointer);
+				button.button = libinput_event_pointer_get_button(pointer);
+				button.state = libinput_event_pointer_get_button_state(pointer);
+				wl_signal_emit(&input->button, &button);
+				break;
 			}
 			case LIBINPUT_EVENT_DEVICE_REMOVED: {
 				/*TODO;*/
