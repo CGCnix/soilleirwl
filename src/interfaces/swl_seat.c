@@ -27,8 +27,12 @@ struct swl_seat {
 	char *name;
 	uint32_t caps;
 
+	void *pointer_data;
+	void (*pointer_callback)(void *data, uint32_t mods, int32_t dx, int32_t dy);
+
 	/*Focused USE SURFACES WL_CLIENT TO FIND seat client*/
-	struct wl_resource *surface;
+	struct wl_resource *keyboard;
+	struct wl_resource *pointer;
 
 	struct wl_list devices;
 	struct wl_list bindings;
@@ -53,6 +57,9 @@ typedef struct swl_seat_client {
 
 	struct wl_resource *keyboard;
 	struct wl_resource *pointer;
+
+	void *pointer_data;
+	void (*pointer_callback)(void *data, int32_t dx, int32_t dy);
 
 	struct wl_list link;
 } swl_seat_client_t;
@@ -102,9 +109,9 @@ void swl_seat_key_press(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	if(seat->surface) {
+	if(seat->keyboard) {
 		wl_list_for_each(seat_client, &seat->clients, link) {
-			if(seat_client->client == wl_resource_get_client(seat->surface) && seat_client->keyboard) {
+			if(seat_client->client == wl_resource_get_client(seat->keyboard) && seat_client->keyboard) {
 				wl_keyboard_send_modifiers(seat_client->keyboard, wl_display_next_serial(display), depressed, 0, 0, 0);
 				wl_keyboard_send_key(seat_client->keyboard, wl_display_next_serial(display), 0, key->key, key->state);
 			}
@@ -123,8 +130,12 @@ static void wl_pointer_set_cur(struct wl_client *client, struct wl_resource *res
 static void swl_pointer_motion(struct wl_listener *listener, void *data) {
 	swl_seat_device_t *seat_dev = wl_container_of(listener, seat_dev, motion);
 	swl_seat_t *seat = seat_dev->seat;
+	swl_motion_event_t *motion = data;
+	xkb_mod_mask_t depressed = xkb_state_serialize_mods(seat->state, XKB_STATE_MODS_DEPRESSED);
 	
-
+	if(seat->pointer_callback) {
+		seat->pointer_callback(seat->pointer_data, depressed, motion->dx, motion->dy);
+	}
 	/*
 	soilleir_server_t *server = wl_container_of(seat, server, seat); 
 	swl_client_t *client;
@@ -244,10 +255,10 @@ static void swl_seat_activate(struct wl_listener *listener, void *data) {
 	struct wl_array keys;
 	wl_array_init(&keys);
 
-	if(seat->surface) {
+	if(seat->keyboard) {
 		wl_list_for_each(client, &seat->clients, link) {
-			if(client->client == wl_resource_get_client(seat->surface) && client->keyboard) {
-				wl_keyboard_send_enter(client->keyboard, wl_display_next_serial(display), seat->surface, &keys);
+			if(client->client == wl_resource_get_client(seat->keyboard) && client->keyboard) {
+				wl_keyboard_send_enter(client->keyboard, wl_display_next_serial(display), seat->keyboard, &keys);
 			}
 		}
 	}
@@ -273,10 +284,10 @@ static void swl_seat_disable(struct wl_listener *listener, void *data) {
 	struct wl_array keys;
 	wl_array_init(&keys);
 
-	if(seat->surface) {
+	if(seat->keyboard) {
 		wl_list_for_each(client, &seat->clients, link) {
-			if(client->client == wl_resource_get_client(seat->surface) && client->keyboard) {
-				wl_keyboard_send_leave(client->keyboard, wl_display_next_serial(display), seat->surface);
+			if(client->client == wl_resource_get_client(seat->keyboard) && client->keyboard) {
+				wl_keyboard_send_leave(client->keyboard, wl_display_next_serial(display), seat->keyboard);
 			}
 		}
 	}
@@ -341,25 +352,55 @@ void swl_seat_set_keymap(swl_seat_t *seat, char *map) {
 	seat->state = xkb_state;
 }
 
-void swl_seat_set_focused_surface(swl_seat_t *seat, struct wl_resource *resource) {
+void swl_seat_set_focused_surface_keyboard(swl_seat_t *seat, struct wl_resource *resource) {
 	swl_seat_client_t *seat_client;
 	struct wl_array keys;
 	wl_array_init(&keys);
 
-	if(seat->surface) {
+	if(seat->keyboard) {
 		wl_list_for_each(seat_client, &seat->clients, link) {
-			if(seat_client->client == wl_resource_get_client(seat->surface) && seat_client->keyboard) {
-				wl_keyboard_send_leave(seat_client->keyboard, wl_display_next_serial(wl_global_get_display(seat->global)), seat->surface);
+			if(seat_client->client == wl_resource_get_client(seat->keyboard) && seat_client->keyboard) {
+				wl_keyboard_send_leave(seat_client->keyboard, wl_display_next_serial(wl_global_get_display(seat->global)), seat->keyboard);
 			}
 		}
 	}
 
-	seat->surface = resource;
+	seat->keyboard = resource;
+	if(seat->keyboard == NULL) return;
 	wl_list_for_each(seat_client, &seat->clients, link) {
-		if(seat_client->client == wl_resource_get_client(seat->surface) && seat_client->keyboard) {
-			wl_keyboard_send_enter(seat_client->keyboard, wl_display_next_serial(wl_global_get_display(seat->global)), seat->surface, &keys);
+		if(seat_client->client == wl_resource_get_client(seat->keyboard) && seat_client->keyboard) {
+			wl_keyboard_send_enter(seat_client->keyboard, wl_display_next_serial(wl_global_get_display(seat->global)), seat->keyboard, &keys);
 		}
 	}
+}
+
+void swl_seat_set_focused_surface_pointer(swl_seat_t *seat, struct wl_resource *resource) {
+	swl_seat_client_t *seat_client;
+	struct wl_array keys;
+	wl_array_init(&keys);
+
+	if(seat->pointer) {
+		wl_list_for_each(seat_client, &seat->clients, link) {
+			if(seat_client->client == wl_resource_get_client(seat->pointer) && seat_client->pointer) {
+				wl_pointer_send_leave(seat->pointer, wl_display_next_serial(wl_global_get_display(seat->global)), seat_client->pointer);
+			}
+		}
+	}
+
+	seat->pointer = resource;
+	if(seat->pointer) {
+		wl_list_for_each(seat_client, &seat->clients, link) {
+			if(seat_client->client == wl_resource_get_client(seat->pointer) && seat_client->pointer) {
+				wl_pointer_send_enter(seat->pointer, wl_display_next_serial(wl_global_get_display(seat->global)), seat_client->pointer, 0, 0);
+			}
+		}
+	}
+}
+
+int swl_seat_add_pointer_callback(swl_seat_t *seat, void (*callback)(void *data, uint32_t mods, int32_t dx, int32_t dy), void *data) {
+	seat->pointer_callback = callback;
+	seat->pointer_data = data;
+	return 0;
 }
 
 int swl_seat_add_binding(swl_seat_t *seat, xkb_mod_mask_t mods, xkb_keysym_t key, void (*callback)(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uint32_t state), void *data) {

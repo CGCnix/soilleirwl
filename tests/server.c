@@ -84,6 +84,9 @@ typedef struct swl_xdg_toplevel swl_xdg_toplevel_t;
 typedef struct {
 	struct wl_display *display;
 	swl_backend_t *backend;
+	
+	int32_t xpos;
+	int32_t ypos;
 
 	swl_seat_t *seat;
 
@@ -303,16 +306,6 @@ void xdg_toplevel_mapped(struct wl_resource *surf, struct wl_client *wl_client) 
 	swl_xdg_surface_t *xdg_surface = wl_resource_get_user_data(surface->role);
 	swl_xdg_toplevel_t *xdg_toplevel = wl_resource_get_user_data(xdg_surface->role);
 
-	swl_client_t *client = swl_get_client_or_create(wl_client, &xdg_surface->backend->clients);
-
-
-	struct wl_array keys;
-	wl_array_init(&keys);
-
-	if(xdg_surface->backend->active == NULL) {
-		xdg_surface->backend->active = xdg_toplevel;
-		swl_seat_set_focused_surface(xdg_toplevel->swl_xdg_surface->backend->seat, xdg_toplevel->swl_xdg_surface->swl_surface->resource);
-	}
 }
 
 void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_surface,
@@ -410,6 +403,53 @@ void soilleir_quit(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uint32_t s
 	wl_display_terminate(display);
 }
 
+void soilleir_pointer_motion(void *data, uint32_t mods, int32_t dx, int32_t dy) {
+	soilleir_server_t *soilleir = data;
+	swl_client_t *client;
+	swl_xdg_toplevel_t *toplevel;
+	struct wl_array states;
+	wl_array_init(&states);
+	soilleir->xpos += dx;
+	soilleir->ypos += dy;
+
+	soilleir->backend->BACKEND_MOVE_CURSOR(soilleir->backend, soilleir->xpos, soilleir->ypos);
+
+	wl_list_for_each(client, &soilleir->clients, link) {
+		wl_list_for_each(toplevel, &client->surfaces, link) {
+			swl_surface_t *surface = toplevel->swl_xdg_surface->swl_surface;
+			if(soilleir->xpos >= surface->position.x && soilleir->xpos <= surface->position.x + surface->width &&
+				 soilleir->ypos >= surface->position.y && soilleir->ypos <= surface->position.y + surface->height) {
+				if(soilleir->active) {
+					swl_seat_set_focused_surface_keyboard(soilleir->seat, NULL);
+				}
+
+				soilleir->active = toplevel;
+				if(soilleir->active) {
+					swl_seat_set_focused_surface_keyboard(soilleir->seat, soilleir->active->swl_xdg_surface->swl_surface->resource);
+				}
+			}
+		}
+	}
+
+	if(mods == (MODIFER_CTRL)) {
+		if(soilleir->active) {
+			soilleir->active->swl_xdg_surface->swl_surface->position.y += dy;
+			soilleir->active->swl_xdg_surface->swl_surface->position.x += dx;
+		}
+	} else if(mods == (MODIFER_ALT)) {
+		if(soilleir->active) {
+			soilleir->active->swl_xdg_surface->swl_surface->width += dx;
+			soilleir->active->swl_xdg_surface->swl_surface->height += dy;
+			xdg_toplevel_send_configure(soilleir->active->swl_xdg_surface->role, 
+					soilleir->active->swl_xdg_surface->swl_surface->width,
+					soilleir->active->swl_xdg_surface->swl_surface->height,
+					&states);
+			xdg_surface_send_configure(soilleir->active->swl_xdg_surface->swl_surface->role, wl_display_next_serial(soilleir->display));
+		}
+	}
+
+}
+
 void soilleir_switch_session(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uint32_t state) {
 	soilleir_server_t *soilleir = data;
 
@@ -429,7 +469,7 @@ void soilleir_next_client(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uin
 		if(next) {
 			wl_list_for_each(toplevel, &client->surfaces, link) {
 				soilleir->active = toplevel;
-				swl_seat_set_focused_surface(soilleir->seat, soilleir->active->swl_xdg_surface->swl_surface->resource);
+				swl_seat_set_focused_surface_keyboard(soilleir->seat, soilleir->active->swl_xdg_surface->swl_surface->resource);
 				return;
 			}/*This client didn't have a surface keep cycling*/
 		}
@@ -441,7 +481,7 @@ void soilleir_next_client(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uin
 	wl_list_for_each(client, &soilleir->clients, link) {
 		wl_list_for_each(toplevel, &client->surfaces, link) {
 			soilleir->active = toplevel;
-			swl_seat_set_focused_surface(soilleir->seat, soilleir->active->swl_xdg_surface->swl_surface->resource);
+			swl_seat_set_focused_surface_keyboard(soilleir->seat, soilleir->active->swl_xdg_surface->swl_surface->resource);
 			return;
 		}
 	}
@@ -726,7 +766,7 @@ int main(int argc, char **argv) {
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_4, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_5, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_6, soilleir_switch_session, &soilleir);
-
+	swl_seat_add_pointer_callback(soilleir.seat, soilleir_pointer_motion, &soilleir);
 
 	wl_list_init(&soilleir.clients);
 
