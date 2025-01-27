@@ -91,6 +91,7 @@ typedef struct {
 	swl_seat_t *seat;
 
 	swl_xdg_toplevel_t *active;
+	swl_xdg_toplevel_t *pointer_surface;
 
 	struct wl_listener output_listner;
 	struct wl_listener output_listner2;
@@ -411,6 +412,7 @@ void soilleir_pointer_motion(void *data, uint32_t mods, int32_t dx, int32_t dy) 
 	wl_array_init(&states);
 	soilleir->xpos += dx;
 	soilleir->ypos += dy;
+	int found = 0;
 
 	soilleir->backend->BACKEND_MOVE_CURSOR(soilleir->backend, soilleir->xpos, soilleir->ypos);
 
@@ -419,16 +421,31 @@ void soilleir_pointer_motion(void *data, uint32_t mods, int32_t dx, int32_t dy) 
 			swl_surface_t *surface = toplevel->swl_xdg_surface->swl_surface;
 			if(soilleir->xpos >= surface->position.x && soilleir->xpos <= surface->position.x + surface->width &&
 				 soilleir->ypos >= surface->position.y && soilleir->ypos <= surface->position.y + surface->height) {
-				if(soilleir->active) {
-					swl_seat_set_focused_surface_keyboard(soilleir->seat, NULL);
+				
+				if(soilleir->active != toplevel) {
+					swl_seat_set_focused_surface_keyboard(soilleir->seat, toplevel->swl_xdg_surface->swl_surface->resource);
+				}
+				
+				if(soilleir->pointer_surface != toplevel) {
+					swl_seat_set_focused_surface_pointer(soilleir->seat, toplevel->swl_xdg_surface->swl_surface->resource,
+							wl_fixed_from_int(soilleir->xpos - surface->position.x),	wl_fixed_from_int(soilleir->ypos - surface->position.y));
 				}
 
+
 				soilleir->active = toplevel;
-				if(soilleir->active) {
-					swl_seat_set_focused_surface_keyboard(soilleir->seat, soilleir->active->swl_xdg_surface->swl_surface->resource);
-				}
+				soilleir->pointer_surface = toplevel;
+				found = 1;
+				break;
 			}
 		}
+		if(found) {
+			break;
+		}
+	}
+
+	if(!found) {
+		soilleir->pointer_surface = NULL;
+		swl_seat_set_focused_surface_pointer(soilleir->seat, NULL, 0, 0);
 	}
 
 	if(mods == (MODIFER_CTRL)) {
