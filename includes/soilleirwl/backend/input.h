@@ -16,5 +16,6 @@ struct swl_input_backend {
 };
 
 
+void swl_libinput_backend_destroy(swl_input_backend_t *input);	
 swl_input_backend_t *swl_libinput_backend_create(struct wl_display *display,
 		swl_session_backend_t *session, swl_hotplug_backend_t *dev_man);

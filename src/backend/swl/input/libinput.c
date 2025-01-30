@@ -38,7 +38,7 @@ typedef struct swl_libinput_backend {
 
 void swl_libinput_device_added_listener(struct wl_listener *listener, void *data) {
 	swl_libinput_backend_t *libinput = wl_container_of(listener, libinput, device_added);
-
+	
 	libinput_path_add_device(libinput->ctx, data);
 }
 
@@ -158,6 +158,8 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 				break;
 			}
 			case LIBINPUT_EVENT_DEVICE_REMOVED: {
+				input = libinput_device_get_user_data(device);
+				free(input);
 				/*TODO;*/
 				break;
 			}
@@ -166,6 +168,7 @@ int swl_libinput_readable(int fd, uint32_t mask, void *data) {
 				break;
 			}
 		}
+		libinput_event_destroy(event);
 	}
 
 	return 0;
@@ -181,11 +184,30 @@ int swl_libinput_backend_start(swl_input_backend_t *input) {
 
 void swl_libinput_backend_destroy(swl_input_backend_t *input) {
 	swl_libinput_backend_t *libinput;
+	struct libinput_event *event;
+	struct libinput_device *device;
 
 	libinput = (swl_libinput_backend_t*)input;
 	
 	wl_event_source_remove(libinput->readable);
 	libinput_suspend(libinput->ctx);
+	/*Suspend and Delete all the devices*/
+	libinput_dispatch(libinput->ctx);
+
+	while((event = libinput_get_event(libinput->ctx))) {
+		device = libinput_event_get_device(event);
+
+		switch(libinput_event_get_type(event)) {
+			case LIBINPUT_EVENT_DEVICE_REMOVED: {
+				swl_input_dev_t *dev = libinput_device_get_user_data(device);
+				free(dev);
+				break;
+			}
+			default:
+				break;
+		}
+		libinput_event_destroy(event);
+	}
 	libinput_unref(libinput->ctx);
 	free(libinput);
 }

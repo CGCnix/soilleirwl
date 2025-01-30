@@ -49,7 +49,12 @@ int swl_tty_backend_switch_vt(swl_backend_t *backend, int vt) {
 }
 
 void swl_tty_backend_destroy(swl_backend_t *backend) {
-	/*TODO*/
+	swl_tty_backend_t *tty = (swl_tty_backend_t*)backend;
+	tty->input->SWL_INPUT_BACKEND_DESTROY(tty->input);
+	tty->display->SWL_DISPLAY_BACKEND_DESTROY(tty->display, tty->session);
+	tty->hotplug->destroy(tty->hotplug);
+	tty->session->destroy(tty->session);
+	free(tty);
 }
 
 void swl_tty_backend_add_new_output_listener(swl_backend_t *backend, struct wl_listener *listener) {

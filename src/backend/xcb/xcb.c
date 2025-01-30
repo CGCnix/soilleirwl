@@ -36,6 +36,7 @@ typedef struct swl_x11_backend {
 	struct wl_display *display;
 	xcb_connection_t *connection;
 	xcb_screen_t *screen;
+	int drm_fd;
 
 	swl_x11_output_t *output;
 	swl_input_dev_t input;
@@ -147,10 +148,10 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 		swl_debug("X11 err\n");
 	}
 
-	int drm_fd = fds[0];
+	x11->drm_fd = fds[0];
 	swl_debug("X11 FD %d\n", fds[0]);
-	int flags = fcntl(drm_fd, F_GETFD);
-	fcntl(drm_fd, F_SETFD, flags | FD_CLOEXEC);
+	int flags = fcntl(x11->drm_fd, F_GETFD);
+	fcntl(x11->drm_fd, F_SETFD, flags | FD_CLOEXEC);
 
 	x11->output = out;
 	x11->output->common.model = "x11";
@@ -167,6 +168,7 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 	out->common.mode.height = 480;
 	out->common.renderer = swl_egl_renderer_create_by_fd(fds[0]);
 	x11->output->dev = gbm_create_device(fds[0]);
+	
 	xcb_present_select_input(x11->connection, evid, out->window, XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
 
 	x11->output->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
@@ -185,7 +187,8 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 	wl_signal_init(&out->common.destroy);
 	wl_signal_init(&out->common.frame);
 
-	wl_global_create(x11->display, &wl_output_interface, SWL_OUTPUT_VERSION, out, swl_output_bind);
+	x11->output->common.global = wl_global_create(x11->display, &wl_output_interface, SWL_OUTPUT_VERSION, out, swl_output_bind);
+	free(reply);
 	return out;
 }
 
@@ -201,15 +204,12 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 	while(ev) {
 		switch(ev->response_type) {
 			case XCB_EXPOSE: {
-				printf("EXPOSE\n");
 				break;
 			}
 			case XCB_GRAPHICS_EXPOSURE: {
-				printf("Graphics Exposure\n");
 				break;
 			}
 			case XCB_NO_EXPOSURE: {
-				printf("No Expose\n");
 				return 0;
 				break;
 			}
@@ -318,11 +318,9 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			}
 			case 0: {
 				xcb_generic_error_t *err = (void*)ev;
-				printf("%X11 Error d.%d %d\n", err->major_code, err->minor_code, err->error_code);
 				break;
 			}
 			default:
-				printf("%d %d\n", ev->response_type, XCB_PRESENT_COMPLETE_NOTIFY);	
 				break;
 		}
 		free(ev);
@@ -338,6 +336,8 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 }
 
 int swl_x11_backend_stop(swl_backend_t *backend) {
+	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
+
 	return 0;
 }
 
@@ -381,12 +381,18 @@ void swl_x11_backend_destroy(swl_backend_t *backend) {
 	wl_event_source_remove(x11->event);
 
 	for(uint32_t i = 0; i < 2; ++i) {
+		x11->output->common.renderer->destroy_target(x11->output->common.renderer, x11->output->common.targets[i]);
 		xcb_free_pixmap(x11->connection, x11->output->pixmaps[i]);
 		swl_gbm_buffer_destroy(x11->output->common.buffer[i]);
 	}
 	gbm_device_destroy(x11->output->dev);
 	x11->output->common.renderer->destroy(x11->output->common.renderer);
 	xcb_destroy_window(x11->connection, x11->output->window);
+	close(x11->drm_fd);
+
+	free(x11->output->common.buffer);
+	free(x11->output->common.targets);
+	wl_global_destroy(x11->output->common.global);
 	free(x11->output);
 	xcb_disconnect(x11->connection);
 	free(x11);

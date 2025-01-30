@@ -1,4 +1,3 @@
-#include "soilleirwl/interfaces/swl_surface.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -82,7 +81,7 @@ typedef struct swl_seat_device {
 
 	swl_input_dev_t *input;
 	swl_seat_t *seat;
-	struct wl_list *link;
+	struct wl_list link;
 } swl_seat_device_t;
 
 void swl_keyboard_release(struct wl_client *client, struct wl_resource *resource) {
@@ -238,9 +237,42 @@ static void swl_seat_get_touch(struct wl_client *client, struct wl_resource *res
 }
 
 static void swl_seat_release(struct wl_client *client, struct wl_resource *resource) {
-
+	/*This will lead to swl_seat_resource_destroy being called*/
+	wl_resource_destroy(resource);
 }
 
+static void swl_seat_resource_destroy(struct wl_resource *seat_resource) {	
+	struct wl_client *client = wl_resource_get_client(seat_resource);
+	swl_seat_t *seat = wl_resource_get_user_data(seat_resource);
+	swl_seat_client_t *seat_client;
+	
+	wl_list_for_each(seat_client, &seat->clients, link) {
+		if(seat_client->client == client && seat_client->seat == seat_resource) {
+			break; /*Return this*/
+		}
+	}
+	
+	if(!seat_client) {
+		/* I don't think this is "possible" outside of maybe race conditions and other
+		 * weirdness but in theroy there should always be a seat_client if a seat
+		 * was bound
+		 */
+		swl_warn("Seat resource destroyed without client\n");
+		return;
+	}
+	
+	/*remove this from the list of clients*/
+	wl_list_remove(&seat_client->link);
+	/*TODO support multiple cursors and keyboards in a single seat*/
+	if(seat_client->pointer) {
+		wl_resource_destroy(seat_client->pointer);
+	}
+
+	if(seat_client->keyboard) {
+		wl_resource_destroy(seat_client->keyboard);
+	}
+	free(seat_client);
+}
 
 static const struct wl_seat_interface wl_seat_impl = {
 	.release = swl_seat_release,
@@ -278,6 +310,8 @@ static void swl_seat_new_device(struct wl_listener *listener, void *data) {
 	wl_signal_add(&seat_dev->input->motion, &seat_dev->motion);
 	wl_signal_add(&seat_dev->input->key, &seat_dev->key);
 	wl_signal_add(&seat_dev->input->button, &seat_dev->button);
+
+	wl_list_insert(&seat->devices, &seat_dev->link);
 }
 
 static void swl_seat_disable(struct wl_listener *listener, void *data) {
@@ -304,8 +338,8 @@ static void swl_seat_bind(struct wl_client *client, void *data,
 
 	wl_list_insert(&seat->clients, &seat_client->link);
 
-	resource = wl_resource_create(client, &wl_seat_interface, SWL_SEAT_VERSION, id);
-	wl_resource_set_implementation(resource, &wl_seat_impl, data, NULL);
+	resource = wl_resource_create(client, &wl_seat_interface, version, id);
+	wl_resource_set_implementation(resource, &wl_seat_impl, data, swl_seat_resource_destroy);
 	seat_client->client = client;
 	seat_client->seat = resource;
 
@@ -419,6 +453,41 @@ int swl_seat_add_binding(swl_seat_t *seat, xkb_mod_mask_t mods, xkb_keysym_t key
 	binding->mods = mods;
 	wl_list_insert(&seat->bindings, &binding->link);
 	return 0;
+}
+
+void swl_seat_destroy(swl_seat_t *seat) {
+	swl_seat_binding_t *binding, *tmp;
+	swl_seat_device_t *device, *dev_tmp;
+	wl_list_remove(&seat->new_input.link);
+	wl_list_remove(&seat->disable.link);
+	wl_list_remove(&seat->activate.link);
+
+	wl_list_for_each_safe(binding, tmp, &seat->bindings, link) {
+		wl_list_remove(&binding->link);
+		free(binding);
+	}
+
+	/*TODO: if a server wants to delete and remake the seat at run time
+	 * the new seat wouldn't get the device added events so seat's have to be
+	 * made at the start and destroyed at the end not sure if we want or need to
+	 * change this but we maybe should just because someone may have a use for seats
+	 * created at runtime maybe adding a enumerate devices call for backend
+	 */
+	wl_list_for_each_safe(device, dev_tmp, &seat->devices, link) {
+		wl_list_remove(&device->link);
+		wl_list_remove(&device->button.link);
+		wl_list_remove(&device->key.link);
+		wl_list_remove(&device->motion.link);
+		free(device);
+	}
+
+	xkb_state_unref(seat->state);
+	xkb_keymap_unref(seat->keymap);
+	xkb_context_unref(seat->xkb);
+
+	wl_global_destroy(seat->global);
+
+	free(seat);
 }
 
 swl_seat_t *swl_seat_create(struct wl_display *display, swl_backend_t *backend, const char *name, const char *kmap) {
