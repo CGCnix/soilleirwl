@@ -228,7 +228,7 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 				0,
 				0,
 				0,
-				XCB_PRESENT_OPTION_NONE,
+				XCB_PRESENT_OPTION_COPY,
 				0,
 				0,
 				0,
