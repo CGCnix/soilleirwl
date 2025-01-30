@@ -502,6 +502,7 @@ static void xdg_toplevel_render(swl_surface_t *toplevel, swl_output_t *output) {
 
 	/*Draw the subsurface*/
 	/*TODO: Z level*/
+	/*
 	wl_list_for_each(subsurface, &toplevel->subsurfaces, link) {
 		if(subsurface->surface->texture) {
 			toplevel->renderer->draw_texture(toplevel->renderer, subsurface->surface->texture,
@@ -509,7 +510,7 @@ static void xdg_toplevel_render(swl_surface_t *toplevel, swl_output_t *output) {
 				(toplevel->position.y - output->y) + subsurface->position.y);
 		}
 	}
-
+	*/
 }
 
 static void soilleir_frame(struct wl_listener *listener, void *data) {

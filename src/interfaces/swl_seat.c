@@ -85,7 +85,13 @@ typedef struct swl_seat_device {
 } swl_seat_device_t;
 
 void swl_keyboard_release(struct wl_client *client, struct wl_resource *resource) {
+	wl_resource_destroy(resource);
+}
 
+static void swl_seat_keyboard_resource_destroy(struct wl_resource *resource) {
+	swl_seat_client_t *client = wl_resource_get_user_data(resource);
+
+	client->keyboard = NULL;
 }
 
 static const struct wl_keyboard_interface swl_keyboard_impl = {
@@ -123,7 +129,13 @@ void swl_seat_key_press(struct wl_listener *listener, void *data) {
 }
 
 static void wl_pointer_release(struct wl_client *client, struct wl_resource *resource) {
+	wl_resource_destroy(resource);
+}
 
+static void swl_seat_pointer_resource_destroy(struct wl_resource *resource) {
+	swl_seat_client_t *client = wl_resource_get_user_data(resource);
+
+	client->pointer = NULL;
 }
 
 static void wl_pointer_set_cur(struct wl_client *client, struct wl_resource *resource, uint32_t serial, struct wl_resource *surface, int32_t x, int32_t y) {
@@ -195,8 +207,14 @@ static void swl_seat_get_keyboard(struct wl_client *client, struct wl_resource *
 
 	wl_array_init(&keys);
 
+	wl_list_for_each(seat_client, &seat->clients, link) {
+		if(seat_client->client == client && seat_client->seat == seat_resource) {
+			break;
+		}
+	}
+
 	keyboard = wl_resource_create(client, &wl_keyboard_interface, SWL_KEYBOARD_VERSION, id);
-	wl_resource_set_implementation(keyboard, &swl_keyboard_impl, NULL, NULL);
+	wl_resource_set_implementation(keyboard, &swl_keyboard_impl, seat_client, swl_seat_keyboard_resource_destroy);
 
 	keymap = xkb_keymap_get_as_string(seat->keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
 	fd = mkstemp(tmp);
@@ -210,10 +228,8 @@ static void swl_seat_get_keyboard(struct wl_client *client, struct wl_resource *
 	close(fd);
 	free(keymap);
 
-	wl_list_for_each(seat_client, &seat->clients, link) {
-		if(seat_client->client == client && seat_client->seat == seat_resource) {
-			seat_client->keyboard = keyboard;
-		}
+	if(seat_client) {
+		seat_client->keyboard = keyboard;
 	}
 }
 
@@ -221,14 +237,17 @@ static void swl_seat_get_pointer(struct wl_client *client, struct wl_resource *s
 	struct wl_resource *pointer;	
 	swl_seat_client_t *seat_client;
 	swl_seat_t *seat = wl_resource_get_user_data(seat_resource);
-	
-	pointer = wl_resource_create(client, &wl_pointer_interface, SWL_POINTER_VERSION, id);
-	wl_resource_set_implementation(pointer, &wl_pointer_impl, NULL, NULL);
 
 	wl_list_for_each(seat_client, &seat->clients, link) {
 		if(seat_client->client == client && seat_client->seat == seat_resource) {
-			seat_client->pointer = pointer;
+			break;
 		}
+	}
+
+	pointer = wl_resource_create(client, &wl_pointer_interface, SWL_POINTER_VERSION, id);
+	wl_resource_set_implementation(pointer, &wl_pointer_impl, seat_client, swl_seat_pointer_resource_destroy);
+	if(seat_client) {
+		seat_client->pointer = pointer;
 	}
 }
 
