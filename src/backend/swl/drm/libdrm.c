@@ -213,7 +213,7 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	
 	swl_output_parse_edid(fd, connector, &output->make, &output->model, &output->mode.refresh);
 
-	snprintf(output->name, 64, "%s-%d", drmModeGetConnectorTypeName(connector->connector_type), connector->connector_id);
+	snprintf(output->name, 64, "%s-%d", drmModeGetConnectorTypeName(connector->connector_type), connector->connector_type_id);
 	snprintf(output->description, 256, "%s %s (%s)", output->name, output->make, output->model);	
 	
 	//output->draw_texture = render_surface_texture; 
