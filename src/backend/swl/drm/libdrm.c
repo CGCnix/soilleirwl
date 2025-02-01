@@ -219,6 +219,7 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	//output->draw_texture = render_surface_texture; 
 	wl_signal_init(&output->frame);
 	wl_signal_init(&output->destroy);
+	wl_signal_init(&output->bind);
 }
 
 swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeRes *res, drmModeConnector *conn, swl_renderer_t *renderer) {
@@ -342,6 +343,8 @@ static void swl_output_bind(struct wl_client *client, void *data,
 	if(version >= WL_OUTPUT_DONE_SINCE_VERSION) {
 		wl_output_send_done(resource);
 	}
+
+	wl_signal_emit(&output->common.bind, resource);
 }
 
 static void modeset_page_flip_event(int fd, unsigned int frame,
@@ -430,9 +433,8 @@ void swl_drm_deactivate(struct wl_listener *listener, void *data) {
 int swl_drm_backend_move_cursor(swl_display_backend_t *display, int32_t x, int32_t y) {
 	swl_drm_backend_t *drm = (swl_drm_backend_t*)display;
 	swl_drm_output_t *output;
-	swl_debug("Debug\n");
 	wl_list_for_each(output, &drm->outputs, link) {
-		swl_debug("Move Cursor: %d\n", drmModeMoveCursor(drm->fd, output->original_crtc->crtc_id, x, y));
+		drmModeMoveCursor(drm->fd, output->original_crtc->crtc_id, x, y);
 	}
 	return 0;
 }

@@ -420,10 +420,8 @@ swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 	glGenTextures(1, &texture->id);
 	glBindTexture(GL_TEXTURE_2D, texture->id);
 
-	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, width);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, glform, GL_UNSIGNED_BYTE, data);
-
-		glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	return (swl_texture_t*)texture;
 }

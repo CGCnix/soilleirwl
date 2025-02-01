@@ -10,7 +10,6 @@ typedef struct swl_xdg_wm_base {
 	uint32_t serial;
 } swl_xdg_wm_base_t;
 
-static xdg_wm_base
 
 static void swl_xdg_wm_base_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
 

@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -12,12 +13,14 @@
 
 #include <private/xdg-shell-server.h>
 
+
 #define SWL_COMPOSITOR_VERSION 6
 #define SWL_REGION_VERSION 1
 #define SWL_SURFACE_VERSION 6
 #define SWL_SUBCOMPOSITOR_VERSION 1
 #define SWL_SUBSURFACE_VERSION 1
 #define SWL_CALLBACK_VERSION 1
+
 
 static void swl_surface_handle_frame(struct wl_client *client, struct wl_resource *surface_res,
 		uint32_t id) {
@@ -75,9 +78,11 @@ static void swl_surface_handle_set_opaque_region(struct wl_client *client, struc
 
 static void swl_surface_handle_commit(struct wl_client *client, struct wl_resource *surface_res) {
 	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
+	swl_subsurface_t *subsurface;
 	struct wl_shm_buffer *buffer;
 	uint32_t width, height, format;	
 	void *data;
+
 
 	if(surface->role == NULL) {
 		return;
@@ -87,6 +92,10 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 		xdg_surface_send_configure(surface->role, wl_display_next_serial(wl_client_get_display(client)));
 		surface->surface_configured = 1;
 		return;
+	}
+
+	wl_list_for_each(subsurface, &surface->subsurfaces, link) {
+		swl_surface_handle_commit(client, subsurface->surface->resource);
 	}
 
 	if(surface->pending_changes & SWL_SURFACE_PENDING_BUFFER) {
@@ -108,14 +117,6 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 			wl_shm_buffer_end_access(buffer);
 			wl_buffer_send_release(surface->pending.buffer);
 		}
-	}
-	
-
-	if(surface->frame) {
-		wl_callback_send_done(surface->frame, 0);
-		wl_resource_destroy(surface->frame);
-		
-		surface->frame = NULL;
 	}
 
 	/*Clear Pendinging*/

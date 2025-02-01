@@ -15,6 +15,8 @@
  */
 
 #include "soilleirwl/renderer.h"
+#include <stdbool.h>
+#include <wayland-server-protocol.h>
 #include <wayland-server.h>
 
 #include <stdint.h>
@@ -75,6 +77,7 @@ typedef struct swl_surface {
 	struct wl_list subsurfaces;
 
 	/*HACK:*/
+	struct wl_resource *buffer;
 	swl_renderer_t *renderer;
 
 	/*todo some kind of buffer*/
@@ -93,5 +96,6 @@ typedef struct swl_subsurface {
 
 	swl_surface_pos_t position;
 	struct wl_list link;
+	bool sync;
 	/*TODO Place below/above*/
 } swl_subsurface_t;

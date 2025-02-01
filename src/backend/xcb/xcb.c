@@ -98,6 +98,7 @@ static void swl_output_bind(struct wl_client *client, void *data,
 	if(version >= WL_OUTPUT_DONE_SINCE_VERSION) {
 		wl_output_send_done(resource);
 	}
+	wl_signal_emit(&output->common.bind, resource);
 }
 
 int swl_x11_create_fb(struct gbm_device *dev, struct gbm_bo **gbm_bo, swl_buffer_t *bo, uint32_t width, uint32_t height) {
@@ -186,7 +187,7 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 
 	wl_signal_init(&out->common.destroy);
 	wl_signal_init(&out->common.frame);
-
+	wl_signal_init(&out->common.bind);
 	x11->output->common.global = wl_global_create(x11->display, &wl_output_interface, SWL_OUTPUT_VERSION, out, swl_output_bind);
 	free(reply);
 	return out;
