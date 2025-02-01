@@ -1,17 +1,18 @@
-#include "../src/xdg-shell-server.h"
-#include "../src/linux-dmabuf-server.h"
-#include "soilleirwl/interfaces/swl_surface.h"
-#include "soilleirwl/renderer.h"
-#include <soilleirwl/interfaces/swl_compositor.h>
-
 #include <stdio.h>
-#include <wayland-server-core.h>
-#include <wayland-server-protocol.h>
-
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+
 #include <wayland-util.h>
+#include <wayland-server-core.h>
+#include <wayland-server-protocol.h>
+
+#include <soilleirwl/renderer.h>
+#include <soilleirwl/interfaces/swl_surface.h>
+#include <soilleirwl/interfaces/swl_compositor.h>
+
+#include <private/xdg-shell-server.h>
+
 
 #define SWL_COMPOSITOR_VERSION 6
 #define SWL_REGION_VERSION 1
@@ -19,6 +20,7 @@
 #define SWL_SUBCOMPOSITOR_VERSION 1
 #define SWL_SUBSURFACE_VERSION 1
 #define SWL_CALLBACK_VERSION 1
+
 
 static void swl_surface_handle_frame(struct wl_client *client, struct wl_resource *surface_res,
 		uint32_t id) {
@@ -76,9 +78,11 @@ static void swl_surface_handle_set_opaque_region(struct wl_client *client, struc
 
 static void swl_surface_handle_commit(struct wl_client *client, struct wl_resource *surface_res) {
 	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
+	swl_subsurface_t *subsurface;
 	struct wl_shm_buffer *buffer;
 	uint32_t width, height, format;	
 	void *data;
+
 
 	if(surface->role == NULL) {
 		return;
@@ -88,6 +92,10 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 		xdg_surface_send_configure(surface->role, wl_display_next_serial(wl_client_get_display(client)));
 		surface->surface_configured = 1;
 		return;
+	}
+
+	wl_list_for_each(subsurface, &surface->subsurfaces, link) {
+		swl_surface_handle_commit(client, subsurface->surface->resource);
 	}
 
 	if(surface->pending_changes & SWL_SURFACE_PENDING_BUFFER) {
@@ -110,14 +118,6 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 			wl_buffer_send_release(surface->pending.buffer);
 		}
 	}
-	
-
-	if(surface->frame) {
-		wl_callback_send_done(surface->frame, 0);
-		wl_resource_destroy(surface->frame);
-		
-		surface->frame = NULL;
-	}
 
 	/*Clear Pendinging*/
 	memset(&surface->pending, 0, sizeof(swl_surface_state_t));
@@ -125,9 +125,21 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 }
 
 static void swl_surface_handle_destroy(struct wl_client *client, struct wl_resource *surface_res) {
-
+	wl_resource_destroy(surface_res);
 }
 
+static void swl_surface_resource_destroy(struct wl_resource *surface_res) {
+	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
+	
+	if(!surface) {
+		return;
+	}
+	
+	if(surface->texture) {
+		surface->renderer->destroy_texture(surface->renderer, surface->texture);
+	}
+	free(surface);
+}
 
 static const struct wl_surface_interface swl_surface_implementation = {
 	.frame = swl_surface_handle_frame,
@@ -170,7 +182,7 @@ static void swl_compositor_create_surface(struct wl_client *client, struct wl_re
 		return;
 	}
 
-	wl_resource_set_implementation(surface->resource, &swl_surface_implementation, surface, NULL);
+	wl_resource_set_implementation(surface->resource, &swl_surface_implementation, surface, swl_surface_resource_destroy);
 }
 
 static void wl_region_destroy(struct wl_client *client, struct wl_resource *region) {
@@ -213,7 +225,12 @@ static void swl_compositor_bind(struct wl_client *client, void *data,
 	wl_resource_set_implementation(compositor, &swl_compositor_implementation, data, NULL);
 }
 
-swl_compositor_t *swl_create_compositor(struct wl_display *display, swl_renderer_t *renderer) {
+void swl_compositor_destroy(swl_compositor_t *compositor) {
+	wl_global_destroy(compositor->wl_compositor);
+	free(compositor);
+}
+
+swl_compositor_t *swl_compositor_create(struct wl_display *display, swl_renderer_t *renderer) {
 	swl_compositor_t *compositor = calloc(1, sizeof(swl_compositor_t));
 
 	wl_signal_init(&compositor->wl_surface);
@@ -225,6 +242,7 @@ swl_compositor_t *swl_create_compositor(struct wl_display *display, swl_renderer
 	return compositor;
 }
 
+
 static void swl_subsurface_set_sync(struct wl_client *client, struct wl_resource *subsurface) {
 
 }
@@ -234,7 +252,7 @@ static void swl_subsurface_set_desync(struct wl_client *client, struct wl_resour
 }
 
 static void swl_subsurface_destroy(struct wl_client *client, struct wl_resource *subsurface) {
-
+	wl_resource_destroy(subsurface);
 }
 
 static void swl_subsurface_place_above(struct wl_client *client, struct wl_resource *subsurface,
@@ -255,6 +273,16 @@ static void swl_subsurface_set_pos(struct wl_client *client, struct wl_resource 
 	subsurface->position.y = y;
 }
 
+static void swl_subsurface_resource_destroy(struct wl_resource *subsurface_resource) {
+	swl_subsurface_t *subsurface = wl_resource_get_user_data(subsurface_resource);
+	
+	/* TODO I don't think based on what I've read roles should be reassignable
+	 * We need to be careful if this client doesn't destroy this surface correctly
+	 */
+	
+	wl_list_remove(&subsurface->link);
+	free(subsurface);
+}
 
 static const struct wl_subsurface_interface swl_subsurface_impl = {
 	.destroy = swl_subsurface_destroy,
@@ -265,7 +293,11 @@ static const struct wl_subsurface_interface swl_subsurface_impl = {
 	.set_position = swl_subsurface_set_pos,
 };
 
-static void swl_subcompositor_destroy(struct wl_client *client, struct wl_resource *subcompositor) {
+static void swl_subcompositor_handle_destroy(struct wl_client *client, struct wl_resource *subcompositor) {
+	wl_resource_destroy(subcompositor);
+}
+
+static void swl_subcompositor_resource_destroy(struct wl_resource *subcompositor) {
 
 }
 
@@ -278,14 +310,14 @@ static void swl_subcompositor_get_subsurface(struct wl_client *client,
 	subsurface->parent = wl_resource_get_user_data(parent);
 	wl_list_insert(&subsurface->parent->subsurfaces, &subsurface->link);
 	subsurface->resource = wl_resource_create(client, &wl_subsurface_interface, SWL_SUBSURFACE_VERSION, id);
-	wl_resource_set_implementation(subsurface->resource, &swl_subsurface_impl, subsurface, NULL);
+	wl_resource_set_implementation(subsurface->resource, &swl_subsurface_impl, subsurface, swl_subsurface_resource_destroy);
 
 	subsurface->surface->role = subsurface->resource;
 }
 
 
 static const struct wl_subcompositor_interface swl_subcompositor_implementation = {
-	.destroy = swl_subcompositor_destroy,
+	.destroy = swl_subcompositor_handle_destroy,
 	.get_subsurface = swl_subcompositor_get_subsurface,
 };
 
@@ -294,10 +326,15 @@ static void swl_subcompositor_bind(struct wl_client *client, void *data,
 	struct wl_resource *subcompositor;
 	
 	subcompositor = wl_resource_create(client, &wl_subcompositor_interface, version, id);
-	wl_resource_set_implementation(subcompositor, &swl_subcompositor_implementation, data, NULL);
+	wl_resource_set_implementation(subcompositor, &swl_subcompositor_implementation, data, swl_subcompositor_resource_destroy);
 }
 
-swl_subcompositor_t *swl_create_sub_compositor(struct wl_display *display) {
+void swl_subcompositor_destroy(swl_subcompositor_t *subcompositor) {
+	wl_global_destroy(subcompositor->wl_subcompositor);
+	free(subcompositor);
+}
+
+swl_subcompositor_t *swl_subcompositor_create(struct wl_display *display) {
 	swl_subcompositor_t *subcompositor = calloc(1, sizeof(swl_subcompositor_t));
 	subcompositor->wl_subcompositor = wl_global_create(display, 
 			&wl_subcompositor_interface, SWL_SUBCOMPOSITOR_VERSION, 

@@ -81,6 +81,7 @@ void swl_libudev_backend_destroy(swl_hotplug_backend_t *hotplug) {
 	swl_libudev_backend_t *udev;
 
 	udev = (swl_libudev_backend_t*)hotplug;
+	
 	udev_unref(udev->udev);
 	free(udev);
 }

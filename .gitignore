@@ -18,3 +18,5 @@ swl-screenshot-server.h
 swl-screenshot-server.c
 linux-dmabuf-server.h
 linux-dmabuf-server.c
+wl_viewporter.c
+wl_viewporter.h

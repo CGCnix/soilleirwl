@@ -189,6 +189,7 @@ void swl_output_parse_edid(int fd, drmModeConnector *connector, char **pnp, char
 			(*pnp)[2] = ((manufacturer >> 0) & 0x1f) + ('A' - 1);
 			(*pnp)[1] = ((manufacturer >> 5) & 0x1f) + ('A' - 1);
 			(*pnp)[0] = ((manufacturer >> 10) & 0x1f) + ('A' - 1);
+			drmModeFreePropertyBlob(blob);
 		}
 	
 		drmModeFreeProperty(prop);
@@ -212,13 +213,13 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	
 	swl_output_parse_edid(fd, connector, &output->make, &output->model, &output->mode.refresh);
 
-	snprintf(output->name, 64, "%s-%d", drmModeGetConnectorTypeName(connector->connector_type), connector->connector_id);
-	snprintf(output->description, 256, "%s %s (%s)", output->name, output->make, output->model);
-	
+	snprintf(output->name, 64, "%s-%d", drmModeGetConnectorTypeName(connector->connector_type), connector->connector_type_id);
+	snprintf(output->description, 256, "%s %s (%s)", output->name, output->make, output->model);	
 	
 	//output->draw_texture = render_surface_texture; 
 	wl_signal_init(&output->frame);
 	wl_signal_init(&output->destroy);
+	wl_signal_init(&output->bind);
 }
 
 swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeRes *res, drmModeConnector *conn, swl_renderer_t *renderer) {
@@ -262,10 +263,22 @@ void swl_drm_outputs_destroy(int fd, struct wl_list *list) {
 
 		swl_gbm_buffer_destroy(output->common.buffer[0]);
 		swl_gbm_buffer_destroy(output->common.buffer[1]);
+		swl_gbm_buffer_destroy(output->cursor);
+
+		free(output->common.buffer);
+		output->common.renderer->destroy_target(output->common.renderer, output->common.targets[0]);
+		output->common.renderer->destroy_target(output->common.renderer, output->common.targets[1]);
+		output->common.renderer->destroy_target(output->common.renderer, output->cursor_target);	
+		free(output->common.targets);
 
 		drmModeFreeCrtc(output->original_crtc);
 		drmModeFreeConnector(output->connector);
 		wl_list_remove(&output->link);
+		
+		free(output->common.name);
+		free(output->common.description);
+		free(output->common.make);
+		free(output->common.model);
 		free(output);
 	}
 }
@@ -330,6 +343,8 @@ static void swl_output_bind(struct wl_client *client, void *data,
 	if(version >= WL_OUTPUT_DONE_SINCE_VERSION) {
 		wl_output_send_done(resource);
 	}
+
+	wl_signal_emit(&output->common.bind, resource);
 }
 
 static void modeset_page_flip_event(int fd, unsigned int frame,
@@ -418,9 +433,8 @@ void swl_drm_deactivate(struct wl_listener *listener, void *data) {
 int swl_drm_backend_move_cursor(swl_display_backend_t *display, int32_t x, int32_t y) {
 	swl_drm_backend_t *drm = (swl_drm_backend_t*)display;
 	swl_drm_output_t *output;
-	swl_debug("Debug\n");
 	wl_list_for_each(output, &drm->outputs, link) {
-		swl_debug("Move Cursor: %d\n", drmModeMoveCursor(drm->fd, output->original_crtc->crtc_id, x, y));
+		drmModeMoveCursor(drm->fd, output->original_crtc->crtc_id, x, y);
 	}
 	return 0;
 }
@@ -451,6 +465,9 @@ void swl_drm_backend_destroy(swl_display_backend_t *display, swl_session_backend
 	wl_event_source_remove(drm->readable);
 
 	swl_drm_outputs_destroy(drm->fd, &drm->outputs);
+	gbm_device_destroy(drm->gbm);
+	drm->renderer->destroy(drm->renderer);
+
 	session->close_dev(session, drm->dev);
 	close(drm->fd);
 	free(drm);

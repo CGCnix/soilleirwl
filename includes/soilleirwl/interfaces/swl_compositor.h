@@ -21,6 +21,8 @@ typedef struct {
 } swl_subcompositor_t;
 
 /*TODO/HACK: this only works on one GPU atm this is fine for now but LATER FIXME!!!*/
-swl_compositor_t *swl_create_compositor(struct wl_display *display, swl_renderer_t *render);
-swl_subcompositor_t *swl_create_sub_compositor(struct wl_display *display);
-	
+swl_compositor_t *swl_compositor_create(struct wl_display *display, swl_renderer_t *render);
+void swl_compositor_destroy(swl_compositor_t *compositor);
+
+swl_subcompositor_t *swl_subcompositor_create(struct wl_display *display);
+void swl_subcompositor_destroy(swl_subcompositor_t *subcompositor);

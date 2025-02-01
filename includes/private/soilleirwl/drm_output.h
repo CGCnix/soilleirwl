@@ -3,7 +3,6 @@
 
 #include <soilleirwl/interfaces/swl_output.h>
 
-#include <stdint.h>
 #include <xf86drmMode.h>
 #include <gbm.h>
 

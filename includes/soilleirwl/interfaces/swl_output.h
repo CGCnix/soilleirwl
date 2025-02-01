@@ -67,5 +67,6 @@ struct swl_output {
 	int front_buffer;
 
 	struct wl_signal frame; /*Inform the compositor this output wants a frame*/
+	struct wl_signal bind;
 	struct wl_signal destroy;
 };

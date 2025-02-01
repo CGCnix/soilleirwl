@@ -18,6 +18,7 @@ struct swl_backend {
 	void (*BACKEND_ADD_DISABLE_LISTENER)(swl_backend_t *backend, struct wl_listener *listener);
 	int (*BACKEND_SWITCH_VT)(swl_backend_t *backend, int vt);
 	int (*BACKEND_MOVE_CURSOR)(swl_backend_t *backend, int32_t x, int32_t y);
+	void (*BACKEND_ADD_OUTPUT_BIND_LISTENER)(swl_backend_t *backend, struct wl_listener *listener);
 };
 
 swl_backend_t *swl_backend_create_by_env(struct wl_display *display);

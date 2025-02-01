@@ -2,7 +2,6 @@
 #include "soilleirwl/interfaces/swl_output.h"
 #include <soilleirwl/renderer.h>
 #include <soilleirwl/logger.h>
-#include <soilleirwl/private/drm_output.h>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -191,8 +190,8 @@ void swl_egl_create_shader(swl_egl_renderer_t *renderer) {
 			swl_error("GL shader linking failed: %s\n", infoLog) 
 			free(infoLog);
 		}
-
-		glDeleteProgram (renderer->texture_shader);
+	
+		glDeleteProgram(renderer->texture_shader);
 		return;
 	}
 	glDeleteShader(fragmentShader);
@@ -421,10 +420,8 @@ swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 	glGenTextures(1, &texture->id);
 	glBindTexture(GL_TEXTURE_2D, texture->id);
 
-	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, width);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, glform, GL_UNSIGNED_BYTE, data);
-
-		glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	return (swl_texture_t*)texture;
 }
@@ -515,7 +512,7 @@ void swl_egl_renderer_destroy(swl_renderer_t *renderer) {
 		egl->current = NULL;
 	}
 	*/
-	eglDestroyContext(egl->display, egl->current);
+	eglDestroyContext(egl->display, egl->ctx);
 	eglTerminate(egl->display);
 	free(egl);
 }
@@ -572,7 +569,7 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 		swl_error("Query devices call 2 failed\n");
 		return NULL;
 	}
-		
+	
 	for(dev = 0; dev < dev_count; dev++) {
 		egl_dev_string = egl->funcs.eglQueryDeviceStringEXT(devices[dev], EGL_DRM_DEVICE_FILE_EXT);
 
@@ -582,6 +579,7 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 			break;
 		}
 	}
+	free(drm_dev);
 	egl->drmfd = drm_fd;
 	egl->display = egl->funcs.EGLGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, preffered, NULL);
 	eglInitialize(egl->display, &major, &minor);
@@ -624,5 +622,6 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	glEnable(GL_DEBUG_OUTPUT_KHR);
 	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_KHR);
 	swl_egl_create_shader(egl);
+	free(devices);
 	return (swl_renderer_t*)egl;
 }
