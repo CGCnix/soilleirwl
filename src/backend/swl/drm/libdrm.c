@@ -196,7 +196,7 @@ void swl_output_parse_edid(int fd, drmModeConnector *connector, char **pnp, char
 	}
 }
 
-void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *output) {
+void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *output, int32_t x, int32_t y) {
 	output->description = calloc(1, 256);
 	output->name = calloc(1, 64);
 
@@ -204,7 +204,8 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	output->mode.width = connector->modes->hdisplay;
 	output->mode.flags = WL_OUTPUT_MODE_CURRENT | WL_OUTPUT_MODE_PREFERRED;
 	output->mode.height = connector->modes->vdisplay;
-
+	output->x = x;
+	output->y = y;
 	output->scale = 1;
 	output->tranform = WL_OUTPUT_TRANSFORM_NORMAL;
 	output->subpixel = WL_OUTPUT_SUBPIXEL_UNKNOWN;
@@ -222,13 +223,13 @@ void swl_output_init_common(int fd, drmModeConnector *connector, swl_output_t *o
 	wl_signal_init(&output->bind);
 }
 
-swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeRes *res, drmModeConnector *conn, swl_renderer_t *renderer) {
+swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeRes *res, drmModeConnector *conn, swl_renderer_t *renderer, int32_t x, int32_t y) {
 	swl_drm_output_t *output = calloc(1, sizeof(swl_drm_output_t));
 	uint32_t width = conn->modes->hdisplay;
 	uint32_t height = conn->modes->vdisplay;
 	uint32_t ret = 0;
 	output->connector = conn;
-	swl_output_init_common(fd, conn, &output->common);
+	swl_output_init_common(fd, conn, &output->common, x, y);
 	output->original_crtc = swl_drm_get_conn_crtc(fd, conn, res);
 
 	output->common.renderer = renderer;
@@ -287,6 +288,8 @@ int drm_create_outputs(struct gbm_device *gbm, int fd, drmModeRes *res, swl_rend
 	uint32_t count;
 	drmModeConnector *connector = NULL;
 	swl_drm_output_t *output;
+	int32_t x = 0;
+	int32_t y = 0;
 
 	for(count = 0; count < res->count_connectors; count++) {
 		connector = drmModeGetConnector(fd, res->connectors[count]);
@@ -294,8 +297,10 @@ int drm_create_outputs(struct gbm_device *gbm, int fd, drmModeRes *res, swl_rend
 			swl_warn("Failed to get connector %d\n", res->connectors[count]);
 			continue;
 		} else if(connector->connection == DRM_MODE_CONNECTED) {
-			output = swl_drm_output_create(gbm, fd, res, connector, renderer);
+			output = swl_drm_output_create(gbm, fd, res, connector, renderer, x, y);
 			wl_list_insert(list, &output->link);
+			x = output->common.x + output->common.mode.width;
+
 			continue;
 		}
 		drmModeFreeConnector(connector);
@@ -434,7 +439,10 @@ int swl_drm_backend_move_cursor(swl_display_backend_t *display, int32_t x, int32
 	swl_drm_backend_t *drm = (swl_drm_backend_t*)display;
 	swl_drm_output_t *output;
 	wl_list_for_each(output, &drm->outputs, link) {
-		drmModeMoveCursor(drm->fd, output->original_crtc->crtc_id, x, y);
+		if((x >= output->common.x - 64 && x <= output->common.x + output->common.mode.width + 64) &&
+				(y >= output->common.y - 64 && y <= output->common.y + output->common.mode.height + 64)) {
+			drmModeMoveCursor(drm->fd, output->original_crtc->crtc_id, x - output->common.x, y - output->common.y);
+		}
 	}
 	return 0;
 }

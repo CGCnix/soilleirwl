@@ -266,7 +266,7 @@ int writeImage(char* filename, int width, int height, uint8_t *buffer, char *tit
 
 	    finalise:
    if (fp != NULL) fclose(fp);
-   if (info_ptr != NULL) png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
+   if (info_ptr != NULL) png_destroy_info_struct(png_ptr, &info_ptr);
    if (png_ptr != NULL) png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
    if (row != NULL) free(row);
 

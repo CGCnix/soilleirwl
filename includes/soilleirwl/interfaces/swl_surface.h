@@ -14,12 +14,14 @@
  *
  */
 
-#include "soilleirwl/renderer.h"
+#include <stdint.h>
 #include <stdbool.h>
+
+#include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 #include <wayland-server.h>
 
-#include <stdint.h>
+#include <soilleirwl/renderer.h>
 
 #define SWL_SURFACE_PENDING_NONE 0
 #define SWL_SURFACE_PENDING_BUFFER (1)
@@ -28,65 +30,72 @@
 #define SWL_SURFACE_PENDING_INPUT (1 << 3)
 #define SWL_SURFACE_PENDING_TRANSFORM (1 << 4)
 #define SWL_SURFACE_PENDING_SCALE (1 << 5)
+#define SWL_SURFACE_PENDING_FRAME (1 << 6)
 /*IDEA: Do I need a seperate pending and damage type for damage buffers?*/
+typedef struct swl_surface swl_surface_t;
+
+typedef struct swl_surface_role {
+	void (*precommit)(struct wl_client *client, swl_surface_t *surface, struct wl_resource *role);
+	void (*postcommit)(struct wl_client *client, swl_surface_t *surface, struct wl_resource *role);
+} swl_surface_role_t;
 
 /*TODO: this doesn't represent all possible buffer types*/
 typedef struct swl_surface_buffer {
-	void *data;
+	struct wl_resource *buffer;
 	int32_t x, y;
-	int32_t width, height;
-	int32_t stride, size;
 } swl_surface_buffer_t;
 
 typedef struct swl_rect {
 	int32_t x, y;
 	int32_t width, height;
-
-	struct wl_list *link;
 }	swl_rect_t;
+
+typedef struct swl_surface_pos {
+	int32_t x, y;
+	int32_t z;
+} swl_surface_pos_t;
 
 typedef struct swl_surface_state {
 	int32_t scale;
 	int32_t transform;
 	struct wl_resource *input_region;
 	struct wl_resource *opaque_region;
-
-	struct wl_list damages;
-	struct wl_resource *buffer;
+	struct wl_resource *frame;
+	swl_rect_t damage;
+	swl_surface_buffer_t buffer;
+	int32_t width, height;
 } swl_surface_state_t;
-
-typedef struct swl_surface_pos {
-	int32_t x, y;
-	/*TODO Z*/
-} swl_surface_pos_t;
 
 typedef struct swl_surface {
 	struct wl_resource *resource;
+	struct wl_resource *compositor;
 	struct wl_resource *frame;
-	int surface_configured;	
+	bool configured;
+
+	swl_surface_pos_t position;
+	swl_rect_t extent;
+
 	/*Pending State Swaped into current on commit*/
 	uint32_t pending_changes; /*<Pending changes to apply on commit*/
 	swl_surface_state_t pending;
+	/*Current*/
 
-	/*Current Surface*/
-	int32_t scale;
-	int32_t transform;
+	uint32_t scale;
+	uint32_t transform;
+
 	struct wl_resource *input_region;
 	struct wl_resource *opaque_region;
 
+	swl_surface_buffer_t buffer;
+	int32_t width, height;
+
 	struct wl_list subsurfaces;
-
-	/*HACK:*/
-	struct wl_resource *buffer;
-	swl_renderer_t *renderer;
-
-	/*todo some kind of buffer*/
 	swl_texture_t *texture;
 
-	swl_surface_pos_t position;
-	int32_t width, height;
-	/*Resource with the associate role*/
-	struct wl_resource *role;
+	struct wl_resource *role_resource;
+	swl_surface_role_t *role;
+	struct wl_signal commit;
+	struct wl_signal destroy;
 } swl_surface_t;
 
 typedef struct swl_subsurface {

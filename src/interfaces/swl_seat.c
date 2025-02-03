@@ -29,6 +29,8 @@ struct swl_seat {
 
 	void *pointer_data;
 	void (*pointer_callback)(void *data, uint32_t mods, int32_t dx, int32_t dy);
+	void (*set_cursor_callback)(void *data, struct wl_resource *pointer, struct wl_resource *surface, int32_t x, int32_t y);
+
 	wl_fixed_t pointer_x;
 	wl_fixed_t pointer_y;
 
@@ -139,8 +141,19 @@ static void swl_seat_pointer_resource_destroy(struct wl_resource *resource) {
 }
 
 static void wl_pointer_set_cur(struct wl_client *client, struct wl_resource *resource, uint32_t serial, struct wl_resource *surface, int32_t x, int32_t y) {
+	swl_seat_client_t *seat_client = wl_resource_get_user_data(resource);
+	
+	swl_seat_t *seat = wl_resource_get_user_data(seat_client->seat);
 
+	if(seat->set_cursor_callback) {
+		seat->set_cursor_callback(seat->pointer_data, resource, surface, x, y);
+	}
 }
+
+void swl_seat_add_set_cursor_callback(swl_seat_t *seat, void (*callback)(void *data, struct wl_resource *pointer, struct wl_resource *surface, int32_t dx, int32_t dy), void *data) {
+	seat->set_cursor_callback = callback;
+}
+
 
 static void swl_seat_button(struct wl_listener *listener, void *data) {
 	swl_seat_device_t *seat_dev = wl_container_of(listener, seat_dev, button);

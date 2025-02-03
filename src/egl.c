@@ -63,6 +63,7 @@ int swl_gl_ext_present(const GLubyte *extensions, const char *desired) {
 }
 
 
+/*TODO do this better*/
 GLenum external_format_to_gl(uint32_t format) {
 	switch (format) {
 		case WL_SHM_FORMAT_XRGB8888:
@@ -72,7 +73,12 @@ GLenum external_format_to_gl(uint32_t format) {
 			return GL_BGRA_EXT;
 		case DRM_FORMAT_BGRA8888:
 		case DRM_FORMAT_BGRX8888:
+		case DRM_FORMAT_RGBA8888:
 			return GL_RGBA;
+		case DRM_FORMAT_BGR888:
+			return GL_RGB; /*Need to check if GL_BGR works for textures*/
+		case DRM_FORMAT_RGB888:
+			return GL_RGB;
 		default:
 			swl_debug("Unknown Format Assuming GL_BGRA_EXT\n");
 			return GL_BGRA_EXT;
@@ -406,7 +412,7 @@ typedef struct swl_egl_texture {
 	int32_t width, height;
 } swl_egl_texture_t;
 
-swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width, 
+swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 		uint32_t height, uint32_t format, void *data) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)render;
 	swl_egl_texture_t *texture = calloc(1, sizeof(swl_egl_texture_t));
@@ -414,14 +420,11 @@ swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 
 	texture->height = height;
 	texture->width = width;
-	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);		
-
+	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);
 
 	glGenTextures(1, &texture->id);
 	glBindTexture(GL_TEXTURE_2D, texture->id);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, glform, GL_UNSIGNED_BYTE, data);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
+	glTexImage2D(GL_TEXTURE_2D, 0, glform, width, height, 0, glform, GL_UNSIGNED_BYTE, data);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	return (swl_texture_t*)texture;
 }
@@ -430,17 +433,46 @@ GLfloat normalize(GLuint min, GLuint max, GLuint val) {
 	return 2.0f * ((GLfloat)(val - min) / (max - min)) - 1.0f;
 }
 
-void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y) {
+GLfloat normalize_tex(GLuint min, GLuint max, GLuint val) {
+	return 1.0f * ((GLfloat)(val - min) / (max - min));
+}
+
+/*TODO there is kinda a problem where this is 
+ * only gonna work correctly if all monitors are
+ * on the same GPU(Opengl context)
+ * lot into fixing this somehow
+ */
+void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y, int32_t sx, int32_t sy, uint32_t mode) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)render;
 	swl_egl_texture_t *texture = (swl_egl_texture_t*)texture_in;
+	int32_t oy = y;
+	int32_t ox = x;
 	if (!texture || !texture->id) {
 		return;
 	}
 
-	uint32_t height = egl->current->buffer->height;
-	uint32_t width = egl->current->buffer->width;
 	int32_t twidth = texture->width;
 	int32_t theight = texture->height;
+	int32_t owidth = egl->current->buffer->width;
+	int32_t oheight = egl->current->buffer->height;
+	/*Break out of here this because this shouldn't be visable*/
+	if(-y >= theight || -x >= twidth) return;
+
+	if(mode == SWL_RENDER_TEXTURE_MODE_FILL) {
+		owidth = texture->width;
+		oheight = texture->height;
+	} else if (mode == SWL_RENDER_TEXTURE_MODE_TILE) {
+		theight = oheight;
+		twidth = owidth;
+	}
+
+	if(sx > 0) {
+		sx = 0;
+	}
+
+	if(sy > 0) {
+		sy = 0;
+	}
 
 	if(x < 0) {
 		twidth += x;
@@ -453,30 +485,33 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 		y = 0;
 	}
 
-	glEnable(GL_BLEND);	
+	sx = -sx;
+	sy = -sy;
+
+	glEnable(GL_BLEND);
 	GLfloat verts[] = {
 		//X|Y
 		/*TODO: use the values from glViewport*/
-		normalize(0, width, x + twidth), normalize(0, height, y),
-		normalize(0, width, x), normalize(0, height, y),
-		normalize(0, width, x + twidth), normalize(0, height, y + theight),
-		normalize(0, width, x), normalize(0, height, y + theight),
+		normalize(0, owidth, x + twidth), normalize(0, oheight, y),
+		normalize(0, owidth, x), normalize(0, oheight, y),
+		normalize(0, owidth, x + twidth), normalize(0, oheight, y + theight),
+		normalize(0, owidth, x), normalize(0, oheight, y + theight),
 	};
-	
+
 	GLfloat tex_coords[] = {
-		1.0f, 0.0f,
-		0.0f, 0.0f,
-		1.0f, 1.0f,
-		0.0f, 1.0f,
+		normalize_tex(0, texture->width, sx + twidth), normalize_tex(0, texture->height, sy),
+		normalize_tex(0, texture->width, sx), normalize_tex(0, texture->height, sy),
+		normalize_tex(0, texture->width, sx + twidth), normalize_tex(0, texture->height, sy + theight),
+		normalize_tex(0, texture->width, sx), normalize_tex(0, texture->height, sy + theight),
 	};
 	glUseProgram(egl->texture_shader);
 	GLint pos_inx = glGetAttribLocation(egl->texture_shader, "vert_pos");
 	glVertexAttribPointer(pos_inx, 2, GL_FLOAT, GL_FALSE, 0, verts);
-	
+
 	glEnableVertexAttribArray(0);
 
 	glActiveTexture(GL_TEXTURE0);
-	
+
 	glBindTexture(GL_TEXTURE_2D, texture->id);
 	GLint uv_inx = glGetAttribLocation(egl->texture_shader, "texcoord");
 	glVertexAttribPointer(uv_inx, 2, GL_FLOAT, GL_FALSE, 0, tex_coords);
@@ -487,7 +522,7 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);	
 	glUniform1i(tex_loc, 0); // 0 == texture unit 0
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	
+
 	glFlush();
 	glFinish();
 }

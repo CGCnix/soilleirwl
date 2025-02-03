@@ -1,34 +1,39 @@
-#include "soilleirwl/allocator/gbm.h"
-#include "soilleirwl/backend/backend.h"
-#include "soilleirwl/interfaces/swl_input_device.h"
-#include <soilleirwl/interfaces/swl_output.h>
-#include <soilleirwl/logger.h>
-#include <soilleirwl/renderer.h>
-#include <gbm.h>
-#include <soilleirwl/backend/xcb.h>
-
-#include <linux/input-event-codes.h>
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <wayland-server-core.h>
-#include <xcb/xcb.h>
-#include <xcb/xproto.h>
 
+#include <gbm.h>
+#include <linux/input-event-codes.h>
+#include <wayland-server-core.h>
+
+#include <wayland-util.h>
+#include <xcb/xcb.h>
 #include <xcb/dri3.h>
+#include <xcb/render.h>
+#include <xcb/xproto.h>
 #include <xcb/present.h>
+#include <xcb/xcb_renderutil.h>
+
+#include <soilleirwl/logger.h>
+#include <soilleirwl/renderer.h>
+#include <soilleirwl/backend/xcb.h>
+#include <soilleirwl/allocator/gbm.h>
+#include <soilleirwl/backend/backend.h>
+#include <soilleirwl/interfaces/swl_output.h>
+#include <soilleirwl/interfaces/swl_input_device.h>
 
 typedef struct swl_x11_output {
 	swl_output_t common;
 	
 	xcb_window_t window;
 	xcb_gcontext_t gc;
+	xcb_pixmap_t cursor;
 	xcb_pixmap_t pixmaps[2];
 	struct gbm_device *dev;
+	struct wl_list link;
 } swl_x11_output_t;
 
 typedef struct swl_x11_backend {
@@ -37,8 +42,11 @@ typedef struct swl_x11_backend {
 	xcb_connection_t *connection;
 	xcb_screen_t *screen;
 	int drm_fd;
+	struct gbm_device *dev;
+	swl_renderer_t *renderer;
 
-	swl_x11_output_t *output;
+	xcb_render_pictformat_t argb32;
+	struct wl_list outputs;
 	swl_input_dev_t input;
 
 	struct wl_signal new_output;
@@ -119,7 +127,7 @@ int swl_x11_destroy_fb(struct gbm_bo **gbm_bo, swl_buffer_t *bo) {
 	return 0;
 }
 
-swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
+swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11, const xcb_setup_t *setup, char *name) {
 	swl_x11_output_t *out = calloc(1, sizeof(swl_x11_output_t));
 	
 	uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_BIT_GRAVITY;
@@ -139,62 +147,59 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11) {
 
 	xcb_map_window(x11->connection, out->window);
 	xcb_flush(x11->connection);
-	xcb_generic_error_t *err;
 
-	xcb_dri3_open_cookie_t cookie = xcb_dri3_open(x11->connection, out->window, 0);
-	xcb_dri3_open_reply_t *reply = xcb_dri3_open_reply(x11->connection, cookie, &err);
-	int *fds = xcb_dri3_open_reply_fds(x11->connection, reply);
-	
-	if(err) {
-		swl_debug("X11 err\n");
-	}
-
-	x11->drm_fd = fds[0];
-	swl_debug("X11 FD %d\n", fds[0]);
-	int flags = fcntl(x11->drm_fd, F_GETFD);
-	fcntl(x11->drm_fd, F_SETFD, flags | FD_CLOEXEC);
-
-	x11->output = out;
-	x11->output->common.model = "x11";
-	x11->output->common.make = "x11";
-	x11->output->common.name = "x11";
-	x11->output->common.description = "x11";
-	x11->output->common.width = 640;
-	x11->output->common.height = 480;
-	x11->output->common.scale = 1;
-	x11->output->common.mode.flags = 1;
-	x11->output->common.mode.refresh = 60;
+	out->common.model = calloc(1, 64);
+	snprintf(out->common.model, 63, "Revision: %d.%d(%d)", setup->protocol_major_version, setup->protocol_minor_version, setup->release_number);
+	out->common.make = strdup(xcb_setup_vendor(setup));
+	out->common.name = strdup(name);
+	out->common.description = "An X11 virtual window";
+	out->common.width = 640;
+	out->common.height = 480;
+	out->common.scale = 1;
+	out->common.mode.flags = 1;
+	out->common.mode.refresh = 60;
 
 	out->common.mode.width = 640;
 	out->common.mode.height = 480;
-	out->common.renderer = swl_egl_renderer_create_by_fd(fds[0]);
-	x11->output->dev = gbm_create_device(fds[0]);
+	out->common.renderer = x11->renderer;
+	out->dev = x11->dev;
 	
 	xcb_present_select_input(x11->connection, evid, out->window, XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
 
-	x11->output->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
-	x11->output->common.targets = calloc(2, sizeof(swl_renderer_target_t*));
+	out->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
+	out->common.targets = calloc(2, sizeof(swl_renderer_target_t*));
 	
-	x11->output->common.buffer[0] = swl_gbm_buffer_create(x11->output->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
-	x11->output->common.buffer[1] = swl_gbm_buffer_create(x11->output->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
-	x11->output->common.targets[0] = x11->output->common.renderer->create_target(x11->output->common.renderer, x11->output->common.buffer[0]);
-	x11->output->common.targets[1] = x11->output->common.renderer->create_target(x11->output->common.renderer, x11->output->common.buffer[1]);
+	out->common.buffer[0] = swl_gbm_buffer_create(out->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
+	out->common.buffer[1] = swl_gbm_buffer_create(out->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
+	out->common.targets[0] = out->common.renderer->create_target(out->common.renderer, out->common.buffer[0]);
+	out->common.targets[1] = out->common.renderer->create_target(out->common.renderer, out->common.buffer[1]);
 
 	for(uint32_t i = 0; i < 2; i++) {
-		x11->output->pixmaps[i] = xcb_generate_id(x11->connection);
-		xcb_dri3_pixmap_from_buffer(x11->connection, x11->output->pixmaps[i], x11->output->window, x11->output->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, x11->output->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(x11->output->common.buffer[i]->bo));
+		out->pixmaps[i] = xcb_generate_id(x11->connection);
+		xcb_dri3_pixmap_from_buffer(x11->connection, out->pixmaps[i], out->window, out->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, out->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(out->common.buffer[i]->bo));
 	}
 
 	wl_signal_init(&out->common.destroy);
 	wl_signal_init(&out->common.frame);
 	wl_signal_init(&out->common.bind);
-	x11->output->common.global = wl_global_create(x11->display, &wl_output_interface, SWL_OUTPUT_VERSION, out, swl_output_bind);
-	free(reply);
+	out->common.global = wl_global_create(x11->display, &wl_output_interface, SWL_OUTPUT_VERSION, out, swl_output_bind);
 	return out;
+}
+
+swl_x11_output_t *swl_x11_get_output(struct wl_list *list, xcb_window_t window) {
+	swl_x11_output_t *output;
+	wl_list_for_each(output, list, link) {
+		if(output->window == window) {
+			return output;
+		}
+	}
+
+	return NULL;
 }
 
 int swl_x11_event(int fd, uint32_t mask, void *data) {
 	swl_x11_backend_t *x11 = data;
+	swl_x11_output_t *out;
 	static int32_t py;
 	static int32_t px;
 	if(mask & (WL_EVENT_ERROR | WL_EVENT_HANGUP)) {
@@ -217,23 +222,29 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			case XCB_GE_GENERIC: {
 			xcb_ge_generic_event_t *ge = (void*)ev;
 			if(ge->event_type == XCB_PRESENT_EVENT_COMPLETE_NOTIFY) {
-			wl_signal_emit(&x11->output->common.frame, x11->output);
-			xcb_present_pixmap(x11->connection, 
-				x11->output->window, 
-				x11->output->pixmaps[x11->output->common.front_buffer],
-				0,
-				0,
-				0,
-				0,
-				0,
-				0,
-				0,
-				0,
-				XCB_PRESENT_OPTION_COPY,
-				0,
-				0,
-				0,
-				0, NULL);
+				xcb_present_complete_notify_event_t *present = (void*)ge;
+				out = swl_x11_get_output(&x11->outputs, present->window);
+				if(!out) {
+					swl_warn("Xcb failed to get output from window: %d\n", present->window);
+					break;
+				}
+				wl_signal_emit(&out->common.frame, out);
+				xcb_present_pixmap(x11->connection,
+					out->window,
+					out->pixmaps[out->common.front_buffer],
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+					XCB_PRESENT_OPTION_COPY,
+					0,
+					0,
+					0,
+					0, NULL);
 			}
 
 				break;
@@ -256,21 +267,27 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			}
 			case XCB_CONFIGURE_NOTIFY: {
 				xcb_configure_notify_event_t *conf = (void*)ev;
-				swl_x11_output_t *out = x11->output;
+				out = swl_x11_get_output(&x11->outputs, conf->window);
+				if(!out) {
+					swl_warn("Xcb failed to get output from window: %d\n", conf->window);
+					break;
+				}
+
 				out->common.mode.height = conf->height;
 				out->common.mode.width = conf->width;
-
-				xcb_free_pixmap(x11->connection, x11->output->pixmaps[0]);
-				xcb_free_pixmap(x11->connection, x11->output->pixmaps[1]);
+				out->common.x = conf->x;
+				out->common.y = conf->y;
+				xcb_free_pixmap(x11->connection, out->pixmaps[0]);
+				xcb_free_pixmap(x11->connection, out->pixmaps[1]);
 
 				for(uint32_t i = 0; i < 2; ++i) {
-					x11->output->pixmaps[i] = xcb_generate_id(x11->connection);
+					out->pixmaps[i] = xcb_generate_id(x11->connection);
 					
-					x11->output->common.renderer->destroy_target(x11->output->common.renderer, x11->output->common.targets[i]);
-					swl_gbm_buffer_destroy(x11->output->common.buffer[i]);
-					x11->output->common.buffer[i] = swl_gbm_buffer_create(x11->output->dev, x11->output->common.mode.width, x11->output->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
-					x11->output->common.targets[i] = x11->output->common.renderer->create_target(x11->output->common.renderer, x11->output->common.buffer[i]);
-					xcb_dri3_pixmap_from_buffer(x11->connection, x11->output->pixmaps[i], x11->output->window, x11->output->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, x11->output->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(x11->output->common.buffer[i]->bo));
+					out->common.renderer->destroy_target(out->common.renderer, out->common.targets[i]);
+					swl_gbm_buffer_destroy(out->common.buffer[i]);
+					out->common.buffer[i] = swl_gbm_buffer_create(out->dev, out->common.mode.width, out->common.mode.height, GBM_FORMAT_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR, 32);
+					out->common.targets[i] = out->common.renderer->create_target(out->common.renderer, out->common.buffer[i]);
+					xcb_dri3_pixmap_from_buffer(x11->connection, out->pixmaps[i], out->window, out->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, out->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(out->common.buffer[i]->bo));
 				}
 				break;
 			}
@@ -319,6 +336,7 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 			}
 			case 0: {
 				xcb_generic_error_t *err = (void*)ev;
+				printf("%d %d %d\n", err->major_code, err->minor_code, err->error_code);
 				break;
 			}
 			default:
@@ -352,27 +370,30 @@ int swl_x11_backend_move_cursor(swl_backend_t *backend, int32_t x, int32_t y) {
 
 int swl_x11_backend_start(swl_backend_t *backend) {
 	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
-	wl_signal_emit(&x11->new_output, x11->output);
+	swl_x11_output_t *out;
 	wl_signal_emit(&x11->new_input, &x11->input);
 
-	wl_signal_emit(&x11->output->common.frame, x11->output);
-	xcb_present_pixmap(x11->connection, 
-		x11->output->window, 
-		x11->output->pixmaps[x11->output->common.front_buffer],
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		0,
-		XCB_PRESENT_OPTION_NONE,
-		0,
-		0,
-		0,
-		0, NULL);
+	wl_list_for_each(out, &x11->outputs, link) {
+		wl_signal_emit(&x11->new_output, out);
 
+		wl_signal_emit(&out->common.frame, out);
+		xcb_present_pixmap(x11->connection, 
+			out->window, 
+			out->pixmaps[out->common.front_buffer],
+			0,
+			0,
+			0,
+			0,
+			0,
+			0,
+			0,
+			0,
+			XCB_PRESENT_OPTION_NONE,
+			0,
+			0,
+			0,
+			0, NULL);
+	}
 
 	return 0;
 }
@@ -380,21 +401,29 @@ int swl_x11_backend_start(swl_backend_t *backend) {
 void swl_x11_backend_destroy(swl_backend_t *backend) {
 	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
 	wl_event_source_remove(x11->event);
+	swl_x11_output_t *out;
+	swl_x11_output_t *tmp;
 
-	for(uint32_t i = 0; i < 2; ++i) {
-		x11->output->common.renderer->destroy_target(x11->output->common.renderer, x11->output->common.targets[i]);
-		xcb_free_pixmap(x11->connection, x11->output->pixmaps[i]);
-		swl_gbm_buffer_destroy(x11->output->common.buffer[i]);
+	wl_list_for_each_safe(out, tmp, &x11->outputs, link) {
+		for(uint32_t i = 0; i < 2; ++i) {
+			out->common.renderer->destroy_target(out->common.renderer, out->common.targets[i]);
+			xcb_free_pixmap(x11->connection, out->pixmaps[i]);
+			swl_gbm_buffer_destroy(out->common.buffer[i]);
+		}
+		xcb_destroy_window(x11->connection, out->window);
+
+		free(out->common.buffer);
+		free(out->common.targets);
+		free(out->common.name);
+		free(out->common.make);
+		free(out->common.model);
+
+		wl_global_destroy(out->common.global);
+		free(out);
 	}
-	gbm_device_destroy(x11->output->dev);
-	x11->output->common.renderer->destroy(x11->output->common.renderer);
-	xcb_destroy_window(x11->connection, x11->output->window);
+	x11->renderer->destroy(x11->renderer);
+	gbm_device_destroy(x11->dev);
 	close(x11->drm_fd);
-
-	free(x11->output->common.buffer);
-	free(x11->output->common.targets);
-	wl_global_destroy(x11->output->common.global);
-	free(x11->output);
 	xcb_disconnect(x11->connection);
 	free(x11);
 }
@@ -425,7 +454,7 @@ void swl_x11_backend_add_new_disable_listener(swl_backend_t *backend, struct wl_
 
 swl_renderer_t *swl_x11_backend_get_renderer(swl_backend_t *backend) {
 	swl_x11_backend_t *x11 = (swl_x11_backend_t *)backend;
-	return x11->output->common.renderer;
+	return x11->renderer;
 }
 
 swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
@@ -471,8 +500,36 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 	x11->event = wl_event_loop_add_fd(loop, xcb_get_file_descriptor(x11->connection), WL_EVENT_READABLE,
 			swl_x11_event, x11);
 
-	x11->output = swl_x11_output_create(x11);
+	wl_list_init(&x11->outputs);
+	xcb_generic_error_t *err;
+	xcb_dri3_open_cookie_t cookie = xcb_dri3_open(x11->connection, x11->screen->root, 0);
+	xcb_dri3_open_reply_t *reply = xcb_dri3_open_reply(x11->connection, cookie, &err);
+	int *fds = xcb_dri3_open_reply_fds(x11->connection, reply);
+	if(err) {
+		swl_debug("X11 dri3 err\n");
+	}
 
+	swl_debug("X11 FD %d\n", fds[0]);
+	int flags = fcntl(x11->drm_fd, F_GETFD);
+	fcntl(x11->drm_fd, F_SETFD, flags | FD_CLOEXEC);
+
+	x11->renderer = swl_egl_renderer_create_by_fd(fds[0]);
+	x11->dev = gbm_create_device(fds[0]);
+
+	const char *monitors = "x11-1";
+	if(getenv("SWL_X11_MONITORS")) {
+		monitors = getenv("SWL_X11_MONITORS");
+	}
+	/*DOn't modify string literal or env string*/
+	char *dupped = strdup(monitors);
+	char *token = strtok(dupped, ";");
+	while(token) {
+		swl_x11_output_t *out = swl_x11_output_create(x11, setup, token);
+		wl_list_insert(&x11->outputs, &out->link);
+		token = strtok(NULL, ";");
+	}
+	free(dupped);
+	free(reply);
 	x11->backend.BACKEND_ADD_NEW_OUTPUT_LISTENER = swl_x11_backend_add_new_output_listener;
 	x11->backend.BACKEND_ADD_ACTIVATE_LISTENER = swl_x11_backend_add_new_activate_listener;
 	x11->backend.BACKEND_ADD_DISABLE_LISTENER = swl_x11_backend_add_new_disable_listener;
