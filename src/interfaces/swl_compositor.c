@@ -107,9 +107,6 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 	}
 
 	if(surface->pending_changes & SWL_SURFACE_PENDING_BUFFER) {
-		if(surface->buffer.buffer && surface->buffer.buffer != surface->pending.buffer.buffer) {
-			wl_buffer_send_release(surface->buffer.buffer);
-		}
 		surface->buffer.buffer = surface->pending.buffer.buffer;
 		
 		surface->buffer.x = surface->pending.buffer.x;
@@ -120,6 +117,10 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 	memset(&surface->pending, 0, sizeof(swl_surface_state_t));
 	surface->pending_changes = 0;
 	surface->role->postcommit(client, surface, surface->role_resource);
+	
+	wl_signal_emit(&surface->commit, surface);	
+
+	surface->buffer.buffer = NULL;
 }
 
 static void swl_surface_handle_destroy(struct wl_client *client, struct wl_resource *surface_res) {
@@ -133,6 +134,8 @@ static void swl_surface_resource_destroy(struct wl_resource *surface_res) {
 		return;
 	}
 	
+	wl_signal_emit(&surface->destroy, surface);
+
 	free(surface);
 }
 
@@ -162,6 +165,9 @@ static void swl_compositor_create_surface(struct wl_client *client, struct wl_re
 	
 	/*Init Subsurfaces list*/
 	wl_list_init(&surface->subsurfaces);
+
+	wl_signal_init(&surface->commit);
+	wl_signal_init(&surface->destroy);
 
 	/*Initialize some basic info*/
 	surface->scale = 1;

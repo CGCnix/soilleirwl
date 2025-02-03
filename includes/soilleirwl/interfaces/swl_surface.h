@@ -95,6 +95,7 @@ typedef struct swl_surface {
 	struct wl_resource *role_resource;
 	swl_surface_role_t *role;
 	struct wl_signal commit;
+	struct wl_signal destroy;
 } swl_surface_t;
 
 typedef struct swl_subsurface {
