@@ -480,6 +480,11 @@ static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 		output->renderer->draw_texture(output->renderer, surface->texture, 
 				surface->position.x - output->x, surface->position.y - output->y,
 				surface->position.x, surface->position.y);
+		if(surface->frame) {
+			wl_callback_send_done(surface->frame, 0);
+			wl_resource_destroy(surface->frame);
+			surface->frame = NULL;
+		}	
 	}
 
 	wl_list_for_each(subsurface, &surface->subsurfaces, link) {
@@ -489,6 +494,11 @@ static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 				(surface->position.y - output->y) + subsurface->position.y, 
 				(surface->position.x) + subsurface->position.x, 
 				(surface->position.y) + subsurface->position.y);
+		}
+		if(subsurface->surface->frame) {
+			wl_callback_send_done(subsurface->surface->frame, 0);
+			wl_resource_destroy(subsurface->surface->frame);
+			subsurface->surface->frame = NULL;
 		}
 	}
 }
@@ -509,6 +519,7 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	}
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
+		if(client == server->active->client) continue;
 		wl_list_for_each(toplevel, &client->surfaces, link) {
 			swl_surface_render(toplevel->swl_xdg_surface->swl_surface, output);
 		}
@@ -520,25 +531,6 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 		}
 	}
 	output->renderer->end(output->renderer);
-	
-	client = NULL;
-	toplevel = NULL;
-	wl_list_for_each(client, &soil_output->server->clients, link) {
-		wl_list_for_each(toplevel, &client->surfaces, link) {
-			if(toplevel->swl_xdg_surface->swl_surface->frame) {
-				wl_callback_send_done(toplevel->swl_xdg_surface->swl_surface->frame, 0);
-				wl_resource_destroy(toplevel->swl_xdg_surface->swl_surface->frame);
-				toplevel->swl_xdg_surface->swl_surface->frame = NULL;
-			}
-			wl_list_for_each(subsurface, &toplevel->swl_xdg_surface->swl_surface->subsurfaces, link) {
-				if(subsurface->surface->frame) {
-					wl_callback_send_done(subsurface->surface->frame, 0);
-					wl_resource_destroy(subsurface->surface->frame);
-					subsurface->surface->frame = NULL;
-				}			
-			}
-		}
-	}
 }
 
 static void soilleir_output_bind(struct wl_listener *listener, void *data) {
