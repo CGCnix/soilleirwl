@@ -24,9 +24,9 @@
 static void swl_surface_handle_frame(struct wl_client *client, struct wl_resource *surface_res,
 		uint32_t id) {
 	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
-
-	surface->frame = wl_resource_create(client, &wl_callback_interface,  SWL_CALLBACK_VERSION, id);
-	wl_resource_set_implementation(surface->frame, NULL, NULL, NULL);	
+	surface->pending_changes |= SWL_SURFACE_PENDING_FRAME;
+	surface->pending.frame = wl_resource_create(client, &wl_callback_interface,  SWL_CALLBACK_VERSION, id);
+	wl_resource_set_implementation(surface->pending.frame, NULL, NULL, NULL);	
 }
 
 static void swl_surface_handle_set_buffer_scale(struct wl_client *client,
@@ -111,6 +111,10 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 		
 		surface->buffer.x = surface->pending.buffer.x;
 		surface->buffer.y = surface->pending.buffer.y;
+	}
+	
+	if(surface->pending_changes & SWL_SURFACE_PENDING_FRAME) {
+		surface->frame = surface->pending.frame;
 	}
 
 	/*Clear Pendinging*/

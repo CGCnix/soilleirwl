@@ -473,18 +473,22 @@ void soilleir_spawn(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uint32_t 
 	}
 }
 
-static void swl_surface_render(swl_surface_t *toplevel, swl_output_t *output) {
+static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 	swl_subsurface_t *subsurface;
-	if(toplevel->texture) {
-		output->renderer->draw_texture(output->renderer, toplevel->texture, 
-				toplevel->position.x - output->x, toplevel->position.y - output->y);
+
+	if(surface->texture) {
+		output->renderer->draw_texture(output->renderer, surface->texture, 
+				surface->position.x - output->x, surface->position.y - output->y,
+				surface->position.x, surface->position.y);
 	}
 
-	wl_list_for_each(subsurface, &toplevel->subsurfaces, link) {
+	wl_list_for_each(subsurface, &surface->subsurfaces, link) {
 		if(subsurface->surface->texture) {
 			output->renderer->draw_texture(output->renderer, subsurface->surface->texture,
-				(toplevel->position.x - output->x) + subsurface->position.x, 
-				(toplevel->position.y - output->y) + subsurface->position.y);
+				(surface->position.x - output->x) + subsurface->position.x, 
+				(surface->position.y - output->y) + subsurface->position.y, 
+				(surface->position.x) + subsurface->position.x, 
+				(surface->position.y) + subsurface->position.y);
 		}
 	}
 }
@@ -501,7 +505,7 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
 	if(output->background) {
-		output->renderer->draw_texture(output->renderer, output->background, 0, 0);
+		output->renderer->draw_texture(output->renderer, output->background, 0, 0, 0, 0);
 	}
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
@@ -618,18 +622,7 @@ void soilleir_surface_commit(struct wl_listener *listener, void *data) {
 
 
 	wl_list_for_each(output, &surface->soilleir->outputs, link) {
-		if(surface->swl_surface->position.x >= output->common->x &&
-				surface->swl_surface->position.x <= (output->common->x + output->common->mode.width - surface->swl_surface->width) &&
-				surface->swl_surface->position.y >= output->common->y &&
-				surface->swl_surface->position.y <= (output->common->y + output->common->mode.height - surface->swl_surface->height)) {
-			found = 1;
-			break;
-		}
-	}
-
-	/*TODO surface enter/leave*/
-	if(!found) { /*Isn't on a monitor so I guess it's not viewable*/
-		return;
+		break;
 	}
 
 	if(!surface->swl_surface->buffer.buffer) return;
@@ -665,7 +658,6 @@ void soilleir_new_surface(struct wl_listener *listener, void *data) {
 	
 	wl_signal_add(&surface->commit, &soilleir_surf->commit);
 	wl_signal_add(&surface->destroy, &soilleir_surf->destroy);
-
 }
 
 int main(int argc, char **argv) {

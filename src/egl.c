@@ -430,17 +430,38 @@ GLfloat normalize(GLuint min, GLuint max, GLuint val) {
 	return 2.0f * ((GLfloat)(val - min) / (max - min)) - 1.0f;
 }
 
-void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y) {
+GLfloat normalize_tex(GLuint min, GLuint max, GLuint val) {
+	return 1.0f * ((GLfloat)(val - min) / (max - min));
+}
+
+/*TODO there is kinda a problem where this is 
+ * only gonna work correctly if all monitors are
+ * on the same GPU(Opengl context)
+ * lot into fixing this somehow
+ */
+void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y, int32_t sx, int32_t sy) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)render;
 	swl_egl_texture_t *texture = (swl_egl_texture_t*)texture_in;
+	int32_t oy = y;
+	int32_t ox = x;
 	if (!texture || !texture->id) {
 		return;
 	}
 
-	uint32_t height = egl->current->buffer->height;
-	uint32_t width = egl->current->buffer->width;
 	int32_t twidth = texture->width;
 	int32_t theight = texture->height;
+	int32_t owidth = egl->current->buffer->width;
+	int32_t oheight = egl->current->buffer->height;
+	/*Break out of here this because this shouldn't be visable*/
+	if(-y >= theight || -x >= twidth) return;
+
+	if(sx > 0) {
+		sx = 0;
+	}
+
+	if(sy > 0) {
+		sy = 0;
+	}
 
 	if(x < 0) {
 		twidth += x;
@@ -453,21 +474,24 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 		y = 0;
 	}
 
+	sx = -sx;
+	sy = -sy;
+	
 	glEnable(GL_BLEND);	
 	GLfloat verts[] = {
 		//X|Y
 		/*TODO: use the values from glViewport*/
-		normalize(0, width, x + twidth), normalize(0, height, y),
-		normalize(0, width, x), normalize(0, height, y),
-		normalize(0, width, x + twidth), normalize(0, height, y + theight),
-		normalize(0, width, x), normalize(0, height, y + theight),
+		normalize(0, owidth, x + twidth), normalize(0, oheight, y),
+		normalize(0, owidth, x), normalize(0, oheight, y),
+		normalize(0, owidth, x + twidth), normalize(0, oheight, y + theight),
+		normalize(0, owidth, x), normalize(0, oheight, y + theight),
 	};
-	
+
 	GLfloat tex_coords[] = {
-		1.0f, 0.0f,
-		0.0f, 0.0f,
-		1.0f, 1.0f,
-		0.0f, 1.0f,
+		normalize_tex(0, texture->width, sx + twidth), normalize_tex(0, texture->height, sy),
+		normalize_tex(0, texture->width, sx), normalize_tex(0, texture->height, sy),
+		normalize_tex(0, texture->width, sx + twidth), normalize_tex(0, texture->height, sy + theight),
+		normalize_tex(0, texture->width, sx), normalize_tex(0, texture->height, sy + theight),
 	};
 	glUseProgram(egl->texture_shader);
 	GLint pos_inx = glGetAttribLocation(egl->texture_shader, "vert_pos");

@@ -30,6 +30,7 @@
 #define SWL_SURFACE_PENDING_INPUT (1 << 3)
 #define SWL_SURFACE_PENDING_TRANSFORM (1 << 4)
 #define SWL_SURFACE_PENDING_SCALE (1 << 5)
+#define SWL_SURFACE_PENDING_FRAME (1 << 6)
 /*IDEA: Do I need a seperate pending and damage type for damage buffers?*/
 typedef struct swl_surface swl_surface_t;
 
@@ -59,7 +60,7 @@ typedef struct swl_surface_state {
 	int32_t transform;
 	struct wl_resource *input_region;
 	struct wl_resource *opaque_region;
-
+	struct wl_resource *frame;
 	swl_rect_t damage;
 	swl_surface_buffer_t buffer;
 	int32_t width, height;
@@ -87,7 +88,6 @@ typedef struct swl_surface {
 
 	swl_surface_buffer_t buffer;
 	int32_t width, height;
-	int32_t x, y;
 
 	struct wl_list subsurfaces;
 	swl_texture_t *texture;
