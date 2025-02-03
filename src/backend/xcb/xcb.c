@@ -1,32 +1,35 @@
-#include "soilleirwl/allocator/gbm.h"
-#include "soilleirwl/backend/backend.h"
-#include "soilleirwl/interfaces/swl_input_device.h"
-#include <soilleirwl/interfaces/swl_output.h>
-#include <soilleirwl/logger.h>
-#include <soilleirwl/renderer.h>
-#include <gbm.h>
-#include <soilleirwl/backend/xcb.h>
-
-#include <linux/input-event-codes.h>
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <wayland-server-core.h>
-#include <xcb/xcb.h>
-#include <xcb/xproto.h>
 
+#include <gbm.h>
+#include <linux/input-event-codes.h>
+#include <wayland-server-core.h>
+
+#include <xcb/xcb.h>
 #include <xcb/dri3.h>
+#include <xcb/render.h>
+#include <xcb/xproto.h>
 #include <xcb/present.h>
+#include <xcb/xcb_renderutil.h>
+
+#include <soilleirwl/logger.h>
+#include <soilleirwl/renderer.h>
+#include <soilleirwl/backend/xcb.h>
+#include <soilleirwl/allocator/gbm.h>
+#include <soilleirwl/backend/backend.h>
+#include <soilleirwl/interfaces/swl_output.h>
+#include <soilleirwl/interfaces/swl_input_device.h>
 
 typedef struct swl_x11_output {
 	swl_output_t common;
 	
 	xcb_window_t window;
 	xcb_gcontext_t gc;
+	xcb_pixmap_t cursor;
 	xcb_pixmap_t pixmaps[2];
 	struct gbm_device *dev;
 } swl_x11_output_t;
@@ -38,6 +41,7 @@ typedef struct swl_x11_backend {
 	xcb_screen_t *screen;
 	int drm_fd;
 
+	xcb_render_pictformat_t argb32;
 	swl_x11_output_t *output;
 	swl_input_dev_t input;
 

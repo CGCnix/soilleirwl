@@ -1,3 +1,4 @@
+#include "soilleirwl/renderer.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -101,18 +102,26 @@ typedef struct swl_client {
 	struct wl_list surfaces;
 	struct wl_client *client;
 	struct wl_listener destroy;
-
+	
+	struct wl_resource *cursor;
 	struct wl_resource *output;
 	struct wl_list link;
 } swl_client_t;
 
-typedef struct swl_xdg_surface {
+typedef struct swl_xdg_surface swl_xdg_surface_t;
+
+typedef struct swl_xdg_surface_role {
+	void (*configure)(struct wl_client *client, swl_xdg_surface_t *surface, struct wl_resource *role);
+} swl_xdg_surface_role_t;
+
+struct swl_xdg_surface {
 	swl_surface_t *swl_surface;
-	
+
 	struct wl_event_source *idle_configure;
 	soilleir_server_t *backend;
-	struct wl_resource *role;
-} swl_xdg_surface_t;
+	struct wl_resource *role_resource;
+	swl_xdg_surface_role_t *role;
+};
 
 typedef struct swl_xdg_toplevel {
 	swl_client_t *client;
@@ -222,15 +231,15 @@ void swl_xdg_toplevel_set_fullscreen(struct wl_client *client, struct wl_resourc
 }
 
 
-void xdg_surface_configure(void *data);
+void swl_xdg_surface_send_configure(void *data);
 
 void swl_xdg_toplevel_set_parent(struct wl_client *client, struct wl_resource *toplevel, struct wl_resource *parent) {
 	swl_xdg_toplevel_t *swl_xdg_toplevel = wl_resource_get_user_data(toplevel);
 	struct wl_display *display = wl_client_get_display(client);
 
-	if(swl_xdg_toplevel->swl_xdg_surface->idle_configure) {
+	if(swl_xdg_toplevel->swl_xdg_surface->idle_configure == NULL) {
 		swl_xdg_toplevel->swl_xdg_surface->idle_configure = wl_event_loop_add_idle(wl_display_get_event_loop(display),
-				xdg_surface_configure, swl_xdg_toplevel);
+				swl_xdg_surface_send_configure, swl_xdg_toplevel->swl_xdg_surface);
 	} 
 
 }
@@ -306,16 +315,25 @@ void xdg_surface_get_popup(struct wl_client *client, struct wl_resource *resourc
 	uint32_t id, struct wl_resource *xdg_surface, struct wl_resource *xdg_positioner) {
 }
 
-void xdg_surface_configure(void *data) {
-	swl_xdg_toplevel_t *toplevel = data;
-	struct wl_array array;
-	wl_array_init(&array);
-	
-	toplevel->swl_xdg_surface->idle_configure = NULL;
+void xdg_surface_toplevel_configure(struct wl_client *client, swl_xdg_surface_t *surface, struct wl_resource *resource) {
+	struct wl_array states;
+	wl_array_init(&states);
 
-	xdg_toplevel_send_configure(toplevel->swl_xdg_surface->role, 640, 480, &array);
-	xdg_surface_send_configure(toplevel->swl_xdg_surface->swl_surface->role, 100);
+	xdg_toplevel_send_configure(resource, surface->swl_surface->width, surface->swl_surface->height, &states);
+}	
+
+void swl_xdg_surface_send_configure(void *data) {
+	swl_xdg_surface_t *surface = data;
+
+	surface->idle_configure = NULL;
+
+	surface->role->configure(wl_resource_get_client(surface->role_resource), surface, surface->role_resource);
+	xdg_surface_send_configure(surface->swl_surface->role_resource, 100);
 }
+
+static swl_xdg_surface_role_t swl_xdg_surface_toplevel_role = {
+	.configure = xdg_surface_toplevel_configure,
+};
 
 void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_surface,
 		uint32_t id) {
@@ -341,8 +359,8 @@ void xdg_surface_get_toplevel(struct wl_client *client, struct wl_resource *xdg_
 	wl_list_insert(&swl_client->surfaces, &swl_xdg_toplevel->link);
 
 	swl_xdg_toplevel->client = swl_client;
-
-	swl_xdg_toplevel->swl_xdg_surface->role = resource;
+	swl_xdg_toplevel->swl_xdg_surface->role = &swl_xdg_surface_toplevel_role;
+	swl_xdg_toplevel->swl_xdg_surface->role_resource = resource;
 	swl_xdg_toplevel->backend = server;
 	swl_xdg_toplevel->swl_xdg_surface->swl_surface->width = 640;
 	swl_xdg_toplevel->swl_xdg_surface->swl_surface->height = 480;
@@ -372,6 +390,27 @@ static const struct xdg_surface_interface xdg_surface_impl = {
 	.ack_configure = xdg_surface_ack_configure,
 };
 
+void swl_xdg_surface_precommit(struct wl_client *client, swl_surface_t *surface, struct wl_resource *resource) {
+	swl_xdg_surface_t *xdg_surface = wl_resource_get_user_data(resource);
+	if(!surface->configured && !surface->buffer.buffer) {
+		/*Initial first commit*/
+		surface->configured = 1;
+		if(xdg_surface->idle_configure == NULL) {
+			xdg_surface->idle_configure = wl_event_loop_add_idle(wl_display_get_event_loop(wl_client_get_display(client)),
+				swl_xdg_surface_send_configure, xdg_surface);
+		} 
+	}
+}
+
+void swl_xdg_surface_postcommit(struct wl_client *client, swl_surface_t *surface, struct wl_resource *resource) {
+
+}
+
+static swl_surface_role_t swl_xdg_surface_role = {	
+	.postcommit = swl_xdg_surface_postcommit,
+	.precommit = swl_xdg_surface_precommit,
+};
+
 void xdg_wm_base_pong(struct wl_client *client, struct wl_resource *resource, uint32_t serial) {
 		
 }
@@ -394,7 +433,8 @@ void xdg_wm_base_create_surface(struct wl_client *client, struct wl_resource *re
 	swl_xdg_surface->backend = wl_resource_get_user_data(resource);
 
 	xdg_surface_resource = wl_resource_create(client, &xdg_surface_interface, 6, id);
-	swl_surface->role = xdg_surface_resource;
+	swl_surface->role_resource = xdg_surface_resource;
+	swl_surface->role = &swl_xdg_surface_role;
 	wl_resource_set_implementation(xdg_surface_resource, &xdg_surface_impl, swl_xdg_surface, xdg_surface_handle_destroy);
 }
 
@@ -472,11 +512,11 @@ void soilleir_pointer_motion(void *data, uint32_t mods, int32_t dx, int32_t dy) 
 		if(soilleir->active) {
 			soilleir->active->swl_xdg_surface->swl_surface->width += dx;
 			soilleir->active->swl_xdg_surface->swl_surface->height += dy;
-			xdg_toplevel_send_configure(soilleir->active->swl_xdg_surface->role, 
-					soilleir->active->swl_xdg_surface->swl_surface->width,
-					soilleir->active->swl_xdg_surface->swl_surface->height,
-					&states);
-			xdg_surface_send_configure(soilleir->active->swl_xdg_surface->swl_surface->role, wl_display_next_serial(soilleir->display));
+		
+			if(soilleir->active->swl_xdg_surface->idle_configure == NULL) {
+				soilleir->active->swl_xdg_surface->idle_configure = wl_event_loop_add_idle(wl_display_get_event_loop(soilleir->display),
+				swl_xdg_surface_send_configure, soilleir->active->swl_xdg_surface);
+			}
 		}
 	}
 
@@ -526,19 +566,30 @@ void soilleir_spawn(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uint32_t 
 	}
 }
 
-static void xdg_toplevel_render(swl_surface_t *toplevel, swl_output_t *output) {
+static void swl_surface_render(swl_surface_t *toplevel, swl_output_t *output) {
 	swl_subsurface_t *subsurface;
-	if(toplevel->texture) {
-		toplevel->renderer->draw_texture(toplevel->renderer, toplevel->texture, 
-				toplevel->position.x - output->x, toplevel->position.y - output->y);
-	}
+	struct wl_shm_buffer *shm_buffer;
+	int32_t width, height;
+	uint32_t format;
+
+	if(!toplevel->buffer.buffer) return;
+
+	shm_buffer = wl_shm_buffer_get(toplevel->buffer.buffer);
+	width = wl_shm_buffer_get_width(shm_buffer);
+	height = wl_shm_buffer_get_height(shm_buffer);
+	format = wl_shm_buffer_get_format(shm_buffer);
+	wl_shm_buffer_begin_access(shm_buffer);
+	swl_texture_t *texture = output->renderer->create_texture(output->renderer, width, height, format, wl_shm_buffer_get_data(shm_buffer));
+
+	output->renderer->draw_texture(output->renderer, texture, 
+			toplevel->position.x - output->x, toplevel->position.y - output->y);
+	
+	output->renderer->destroy_texture(output->renderer, texture);
+	wl_shm_buffer_end_access(shm_buffer);
+
 
 	wl_list_for_each(subsurface, &toplevel->subsurfaces, link) {
-		if(subsurface->surface->texture) {
-			toplevel->renderer->draw_texture(toplevel->renderer, subsurface->surface->texture,
-				(toplevel->position.x - output->x) + subsurface->position.x, 
-				(toplevel->position.y - output->y) + subsurface->position.y);
-		}
+		swl_surface_render(subsurface->surface, output);
 	}
 }
 
@@ -559,13 +610,13 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
 		wl_list_for_each(toplevel, &client->surfaces, link) {
-			xdg_toplevel_render(toplevel->swl_xdg_surface->swl_surface, output);
+			swl_surface_render(toplevel->swl_xdg_surface->swl_surface, output);
 		}
 	}
 
 	if(soil_output->server->active) {
 		wl_list_for_each(toplevel, &soil_output->server->active->client->surfaces, link) {
-			xdg_toplevel_render(toplevel->swl_xdg_surface->swl_surface, output);		
+			swl_surface_render(toplevel->swl_xdg_surface->swl_surface, output);		
 		}
 	}
 	output->renderer->end(output->renderer);
@@ -626,6 +677,30 @@ static void soilleir_new_output(struct wl_listener *listener, void *data) {
 	wl_signal_add(&output->bind, &soil_output->bind);
 
 	wl_list_insert(&server->outputs, &soil_output->link);
+}
+
+static void swl_pointer_precommit(struct wl_client *client, swl_surface_t *surface, struct wl_resource *resource) {
+		
+}
+
+static void swl_pointer_postcommit(struct wl_client *client, swl_surface_t *surface, struct wl_resource *resource) {
+
+}
+
+static swl_surface_role_t swl_cursor_surface_role = {
+	.postcommit = swl_pointer_postcommit,
+	.precommit = swl_pointer_precommit,
+};
+
+void soilleir_set_cursor_callback(void *data, struct wl_resource *pointer, struct wl_resource *surface_res, int32_t dx, int32_t dy) {
+	soilleir_server_t *server = data;
+	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
+	
+	surface->role = &swl_cursor_surface_role;
+	surface->role_resource = pointer;
+
+	swl_client_t *client = swl_get_client_or_create(wl_resource_get_client(surface_res), &server->clients);
+	client->cursor = surface_res;
 }
 
 int soilleir_ipc_set_bgimage(struct msghdr *msg, soilleir_server_t *soilleir) {
@@ -819,7 +894,7 @@ int main(int argc, char **argv) {
 	
 	soilleir.backend = swl_backend_create_by_env(soilleir.display);
 
-	soilleir.compositor = swl_compositor_create(soilleir.display, soilleir.backend->BACKEND_GET_RENDERER(soilleir.backend));
+	soilleir.compositor = swl_compositor_create(soilleir.display, &soilleir);
 	soilleir.subcompositor = swl_subcompositor_create(soilleir.display);
 
 	soilleir.seat = swl_seat_create(soilleir.display, soilleir.backend, "seat0", kmap);
@@ -833,6 +908,7 @@ int main(int argc, char **argv) {
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_5, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_6, soilleir_switch_session, &soilleir);
 	swl_seat_add_pointer_callback(soilleir.seat, soilleir_pointer_motion, &soilleir);
+	swl_seat_add_set_cursor_callback(soilleir.seat, soilleir_set_cursor_callback, &soilleir);
 
 	wl_list_init(&soilleir.clients);
 
