@@ -414,10 +414,14 @@ void swl_x11_backend_destroy(swl_backend_t *backend) {
 
 		free(out->common.buffer);
 		free(out->common.targets);
+		free(out->common.name);
+		free(out->common.make);
+		free(out->common.model);
+
 		wl_global_destroy(out->common.global);
 		free(out);
 	}
-	out->common.renderer->destroy(out->common.renderer);
+	x11->renderer->destroy(x11->renderer);
 	gbm_device_destroy(x11->dev);
 	close(x11->drm_fd);
 	xcb_disconnect(x11->connection);

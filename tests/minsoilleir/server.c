@@ -115,7 +115,10 @@ void swl_xdg_toplevel_handle_destroy(struct wl_resource *toplevel) {
 	swl_xdg_toplevel_t *swl_xdg_toplevel;
 	swl_client_t *client;
 
-	swl_xdg_toplevel = wl_resource_get_user_data(toplevel);	
+	swl_xdg_toplevel = wl_resource_get_user_data(toplevel);
+
+	if(swl_xdg_toplevel->title) free((char*)swl_xdg_toplevel->title);
+
 	if (swl_xdg_toplevel->backend->active == swl_xdg_toplevel) {
 		swl_xdg_toplevel->backend->active = NULL;
 		swl_seat_set_focused_surface_keyboard(swl_xdg_toplevel->backend->seat, NULL);
@@ -516,7 +519,7 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
 	if(output->background) {
-		output->renderer->draw_texture(output->renderer, output->background, 0, 0, 0, 0, SWL_RENDER_TEXTURE_MODE_TILE);
+		output->renderer->draw_texture(output->renderer, output->background, 0, 0, 0, 0, SWL_RENDER_TEXTURE_MODE_NORMAL);
 	}
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
@@ -547,7 +550,9 @@ static void soilleir_output_bind(struct wl_listener *listener, void *data) {
 
 static void soilleir_output_destroy(struct wl_listener *listener, void *data) {
 	soilleir_output_t *soil_output = wl_container_of(listener, soil_output, destroy);
-	
+
+	soil_output->common->renderer->destroy_texture(soil_output->common->renderer, soil_output->common->background);
+
 	wl_list_remove(&soil_output->link);
 	free(soil_output);
 }
@@ -586,7 +591,8 @@ static swl_surface_role_t swl_cursor_surface_role = {
 void soilleir_set_cursor_callback(void *data, struct wl_resource *pointer, struct wl_resource *surface_res, int32_t dx, int32_t dy) {
 	soilleir_server_t *server = data;
 	swl_surface_t *surface = wl_resource_get_user_data(surface_res);
-	
+
+
 	surface->role = &swl_cursor_surface_role;
 	surface->role_resource = pointer;
 
@@ -598,6 +604,10 @@ void swl_create_data_dev_man(struct wl_display *display);
 
 void soilleir_surface_destroy(struct wl_listener *listener, void *data) {
 	soilleir_surface_t *surface = wl_container_of(listener, surface, destroy);
+
+	if(surface->output && surface->swl_surface->texture) {
+		surface->output->common->renderer->destroy_texture(surface->output->common->renderer, surface->swl_surface->texture);
+	}
 
 	wl_list_remove(&surface->commit.link);
 	wl_list_remove(&surface->destroy.link);

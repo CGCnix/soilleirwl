@@ -43,14 +43,14 @@ typedef struct {
 
 
 void *readpng_get_image(FILE *infile, uint32_t *width, uint32_t *height,
-		uint32_t *depth, uint32_t *ctype) {
+		uint32_t *stride, int *depth, int *ctype) {
 	uint8_t sig[8];
 	static png_structp png_ptr;
 	static png_infop info_ptr;
 
-
 	fread(sig, 1, 8, infile);
 	if(!png_check_sig(sig, 8)) {
+		printf("This isn't a PNG file\n");
 		return NULL;
 	}
 
@@ -66,31 +66,50 @@ void *readpng_get_image(FILE *infile, uint32_t *width, uint32_t *height,
 	}
 
 	if (setjmp(png_jmpbuf(png_ptr))) {
-png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+		png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
 		return NULL;
 	}
+
 	png_init_io(png_ptr, infile);
-  png_set_sig_bytes(png_ptr, 8);
-  png_read_info(png_ptr, info_ptr);
+	png_set_sig_bytes(png_ptr, 8);
+	png_read_info(png_ptr, info_ptr);
 
 	png_get_IHDR(png_ptr, info_ptr, width, height, depth, ctype, NULL, NULL, NULL);
-	
-	/*Just bail
-	 * todo: fix and decode other PNGS
-	 */
-	if(*ctype != PNG_COLOR_TYPE_RGBA) {
-		printf("Invalide color type\n");
-		return NULL;
+	printf("Color type: %d, %d, %d\n", *ctype, png_get_bit_depth(png_ptr, info_ptr), *depth);
+
+	/* This should now work for most PNGs */
+	if(*ctype == PNG_COLOR_TYPE_PALETTE) {
+		png_set_expand(png_ptr);
+	} else if(*ctype == PNG_COLOR_TYPE_GRAY && *depth < 8) {
+		png_set_expand(png_ptr);
 	}
 
+	if(png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) {
+		png_set_tRNS_to_alpha(png_ptr);
+	}
 	
+	if(*depth == 16) {
+		png_set_strip_16(png_ptr);
+	}
+
+	if(*ctype == PNG_COLOR_TYPE_GRAY || *ctype == PNG_COLOR_TYPE_GRAY_ALPHA) {
+		png_set_gray_to_rgb(png_ptr);
+	}
+
 	png_bytepp row_pointers = calloc(sizeof(void*), *height);
+	png_read_update_info(png_ptr, info_ptr);
+	*stride = png_get_rowbytes(png_ptr, info_ptr);
+	*ctype = png_get_color_type(png_ptr, info_ptr);
+	*depth = png_get_bit_depth(png_ptr, info_ptr);
+	*width = png_get_image_width(png_ptr, info_ptr);
+	*height = png_get_image_height(png_ptr, info_ptr);
+	printf("Color type: %d, %d, %d %d\n", *ctype, png_get_bit_depth(png_ptr, info_ptr), *depth, *stride);
 	for(int y = 0; y < *height; y++) {
-    row_pointers[y] = (png_byte*)malloc(png_get_rowbytes(png_ptr, info_ptr));
-  }
+		row_pointers[y] = (png_byte*)malloc(*stride);
+	}
 
 	png_read_image(png_ptr, row_pointers);
-	printf("Color type: %d, %d, %d\n", *ctype, PNG_COLOR_TYPE_RGBA, *depth);
+	png_read_end(png_ptr, info_ptr);
 	return row_pointers;
 }
 
@@ -106,7 +125,7 @@ void shm_randomize(char *str) {
 	}
 }
 
-soilleir_ipc_background_image *create_buffer(uint32_t format, uint32_t width, uint32_t height, png_bytepp rows, int *out) {
+soilleir_ipc_background_image *create_buffer(uint32_t format, uint32_t width, uint32_t height, uint32_t stride, png_bytepp rows, int *out) {
 	soilleir_ipc_background_image *buffer = calloc(1, sizeof(soilleir_ipc_background_image));
 	struct wl_shm_pool *pool;
 	char template[] = "/sterm-XXXXXX";
@@ -126,12 +145,11 @@ soilleir_ipc_background_image *create_buffer(uint32_t format, uint32_t width, ui
 	}
 
 	shm_unlink(template);
-	
 	buffer->len = sizeof(*buffer);
 	buffer->opcode = SERVER_SET_BACKGRN;
 	buffer->width = width;
 	buffer->height = height;
-	buffer->stride = buffer->width * 4;
+	buffer->stride = stride;
 	buffer->size = buffer->stride * buffer->height;
 	buffer->format = format;
 	errno = 0;
@@ -143,6 +161,7 @@ soilleir_ipc_background_image *create_buffer(uint32_t format, uint32_t width, ui
 		memcpy(&data[y * buffer->stride], rows[y], buffer->stride);
 	}
 
+	munmap(data, buffer->size);
 	*out = fd;
 
 	return buffer;
@@ -154,15 +173,13 @@ int send_ipc_msg(int32_t fd, int32_t fd_to_send, soilleir_ipc_msg_t *ipcmsg) {
 	socklen_t len = sizeof(addr);
 
 	union {
-    struct cmsghdr    cm;
-    char              control[CMSG_SPACE(sizeof(int))];
-  } control_un;
+		struct cmsghdr cm;
+		char control[CMSG_SPACE(sizeof(int))];
+	} control_un;
 	//server_ipc_msg_t mesg;
-  struct msghdr msg = { 0 };
-  struct iovec iov[1] = { 0 };
+	struct msghdr msg = { 0 };
+	struct iovec iov[1] = { 0 };
 	char buf[4096] = { 0 };
-
-
 
 	struct cmsghdr *cmptr;
 	msg.msg_control = control_un.control;
@@ -189,9 +206,7 @@ int send_ipc_msg(int32_t fd, int32_t fd_to_send, soilleir_ipc_msg_t *ipcmsg) {
 		return 0;
 	}
 
-
 	return 0;
-
 }
 
 #include <drm_fourcc.h>
@@ -201,9 +216,49 @@ void soilleir_ipc_set_bg(const char *swl_ipc, const char *image_name, bool inver
 	addr.sun_family = AF_UNIX;
 	strcpy(addr.sun_path, swl_ipc);
 	static soilleir_ipc_background_image *image;
-	uint32_t width, height, depth, format;
+	uint32_t width, height, stride;
+	int depth, format;
 	int sockfd, image_fd;
 	FILE *fp;
+
+
+	fp = fopen(image_name, "r");
+	if(!fp) {
+		printf("Failed to open image file: %s %s\n", image_name, strerror(errno));
+	}
+
+	png_bytepp rows = readpng_get_image(fp, 
+			&width,
+			&height,
+			&stride,
+			&depth,
+			&format);
+	if(!rows) {
+		printf("Failed to read png file: %s\n", image_name);
+		return;
+	}
+
+	switch(format) {
+		case PNG_COLOR_TYPE_RGB:
+			format = DRM_FORMAT_RGB888;
+			break;
+		case PNG_COLOR_TYPE_RGBA:
+			format = DRM_FORMAT_RGBA8888;
+			break;
+		default:
+			printf("Unsupported Color format: %d\n", format);
+			close(image_fd);
+			free(image);
+			return; /*Bail*/
+	}
+
+	if(invert) {
+		if(format == DRM_FORMAT_RGB888) {
+			format = DRM_FORMAT_BGR888;
+		} else if(format == DRM_FORMAT_RGBA8888) {
+			format = DRM_FORMAT_BGRA8888;
+		}
+	}
 
 	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if(sockfd < 0) {
@@ -216,23 +271,16 @@ void soilleir_ipc_set_bg(const char *swl_ipc, const char *image_name, bool inver
 		return;
 	}
 
-	fp = fopen(image_name, "r");
-	
-	png_bytepp rows = readpng_get_image(fp, 
-			&width, 
-			&height, 
-			&depth, 
-			&format);
-	
-	image = create_buffer(format, width, height, rows, &image_fd);	
-	/*Convert PNG format to something Server understands*/
-	if(invert) {
-		image->format = DRM_FORMAT_RGBA8888;
-	} else {
-		image->format = DRM_FORMAT_BGRA8888;
+	image = create_buffer(format, width, height, stride, rows, &image_fd);	
+	for(uint32_t y = 0; y < height; ++y) {
+		free(rows[y]);
 	}
+	free(rows);
+
 
 	send_ipc_msg(sockfd, image_fd, (soilleir_ipc_msg_t*)image);	
+	close(image_fd);
+	free(image);
 }
 
 void soilleir_ipc_chg_km(const char *swl_ipc, const char *keymap) {

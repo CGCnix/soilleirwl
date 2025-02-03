@@ -58,10 +58,15 @@ static int soilleir_ipc_set_bgimage(struct msghdr *msg, soilleir_server_t *soill
 		return 0;
 	}
 
+
 	soilleir->bg = mmap(0, image->size, PROT_READ | PROT_WRITE, MAP_SHARED, recvfd, 0);
 	close(recvfd);
 	soilleir_output_t *output;
 	wl_list_for_each(output, &soilleir->outputs, link) {
+		if(output->common->background) {
+			output->common->renderer->destroy_texture(output->common->renderer, output->common->background);
+			output->common->background = NULL;
+		}
 		output->common->background = output->common->renderer->create_texture(output->common->renderer, image->width, image->height, image->format, soilleir->bg);
 	}
 

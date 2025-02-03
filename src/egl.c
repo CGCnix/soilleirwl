@@ -63,6 +63,7 @@ int swl_gl_ext_present(const GLubyte *extensions, const char *desired) {
 }
 
 
+/*TODO do this better*/
 GLenum external_format_to_gl(uint32_t format) {
 	switch (format) {
 		case WL_SHM_FORMAT_XRGB8888:
@@ -72,7 +73,12 @@ GLenum external_format_to_gl(uint32_t format) {
 			return GL_BGRA_EXT;
 		case DRM_FORMAT_BGRA8888:
 		case DRM_FORMAT_BGRX8888:
+		case DRM_FORMAT_RGBA8888:
 			return GL_RGBA;
+		case DRM_FORMAT_BGR888:
+			return GL_RGB; /*Need to check if GL_BGR works for textures*/
+		case DRM_FORMAT_RGB888:
+			return GL_RGB;
 		default:
 			swl_debug("Unknown Format Assuming GL_BGRA_EXT\n");
 			return GL_BGRA_EXT;
@@ -406,7 +412,7 @@ typedef struct swl_egl_texture {
 	int32_t width, height;
 } swl_egl_texture_t;
 
-swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width, 
+swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 		uint32_t height, uint32_t format, void *data) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)render;
 	swl_egl_texture_t *texture = calloc(1, sizeof(swl_egl_texture_t));
@@ -414,14 +420,11 @@ swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 
 	texture->height = height;
 	texture->width = width;
-	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);		
-
+	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);
 
 	glGenTextures(1, &texture->id);
 	glBindTexture(GL_TEXTURE_2D, texture->id);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, glform, GL_UNSIGNED_BYTE, data);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
+	glTexImage2D(GL_TEXTURE_2D, 0, glform, width, height, 0, glform, GL_UNSIGNED_BYTE, data);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	return (swl_texture_t*)texture;
 }
@@ -484,8 +487,8 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 
 	sx = -sx;
 	sy = -sy;
-	
-	glEnable(GL_BLEND);	
+
+	glEnable(GL_BLEND);
 	GLfloat verts[] = {
 		//X|Y
 		/*TODO: use the values from glViewport*/
@@ -504,11 +507,11 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 	glUseProgram(egl->texture_shader);
 	GLint pos_inx = glGetAttribLocation(egl->texture_shader, "vert_pos");
 	glVertexAttribPointer(pos_inx, 2, GL_FLOAT, GL_FALSE, 0, verts);
-	
+
 	glEnableVertexAttribArray(0);
 
 	glActiveTexture(GL_TEXTURE0);
-	
+
 	glBindTexture(GL_TEXTURE_2D, texture->id);
 	GLint uv_inx = glGetAttribLocation(egl->texture_shader, "texcoord");
 	glVertexAttribPointer(uv_inx, 2, GL_FLOAT, GL_FALSE, 0, tex_coords);
@@ -519,7 +522,7 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);	
 	glUniform1i(tex_loc, 0); // 0 == texture unit 0
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	
+
 	glFlush();
 	glFinish();
 }
