@@ -439,7 +439,7 @@ GLfloat normalize_tex(GLuint min, GLuint max, GLuint val) {
  * on the same GPU(Opengl context)
  * lot into fixing this somehow
  */
-void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y, int32_t sx, int32_t sy) {
+void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y, int32_t sx, int32_t sy, uint32_t mode) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)render;
 	swl_egl_texture_t *texture = (swl_egl_texture_t*)texture_in;
 	int32_t oy = y;
@@ -454,6 +454,14 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 	int32_t oheight = egl->current->buffer->height;
 	/*Break out of here this because this shouldn't be visable*/
 	if(-y >= theight || -x >= twidth) return;
+
+	if(mode == SWL_RENDER_TEXTURE_MODE_FILL) {
+		owidth = texture->width;
+		oheight = texture->height;
+	} else if (mode == SWL_RENDER_TEXTURE_MODE_TILE) {
+		theight = oheight;
+		twidth = owidth;
+	}
 
 	if(sx > 0) {
 		sx = 0;

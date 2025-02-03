@@ -43,6 +43,10 @@ typedef struct swl_texture swl_texture_t;
  * Compositor returns to DRM backend -> drm backend flips buffers rendered data on screen
  */ 
 
+#define SWL_RENDER_TEXTURE_MODE_NORMAL (1 << 0)
+#define SWL_RENDER_TEXTURE_MODE_TILE (1 << 1)
+#define SWL_RENDER_TEXTURE_MODE_FILL (1 << 2)
+
 typedef void (*SWL_RENDER_BEGIN)(swl_renderer_t *renderer);
 typedef void (*SWL_RENDER_END)(swl_renderer_t *renderer);
 typedef void (*SWL_RENDER_CLEAR)(swl_renderer_t *renderer, float r, float g, float b, float a);
@@ -52,7 +56,7 @@ typedef void (*SWL_RENDER_DESTROY_TARGET)(swl_renderer_t *renderer, swl_renderer
 typedef swl_texture_t *(*SWL_RENDER_CREATE_TEXTURE)(swl_renderer_t *renderer, uint32_t width, uint32_t height, uint32_t format, void *data);
 typedef swl_renderer_target_t *(*SWL_RENDER_CREATE_TARGET)(swl_renderer_t *renderer, swl_gbm_buffer_t *buffer);
 typedef void (*SWL_RENDER_DESTROY_TEXTURE)(swl_renderer_t *renderer, swl_texture_t *texture);
-typedef void (*SWL_RENDER_TEXTURE_DRAW)(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y, int32_t sx, int32_t sy);
+typedef void (*SWL_RENDER_TEXTURE_DRAW)(swl_renderer_t *render, swl_texture_t *texture_in, int32_t x, int32_t y, int32_t sx, int32_t sy, uint32_t mode);
 typedef void (*SWL_RENDER_DESTROY)(swl_renderer_t *renderer);
 typedef void (*SWL_RENDERER_COPY_FROM)(swl_renderer_t *renderer, void *dst, uint32_t height, uint32_t width, uint32_t x, uint32_t y, uint32_t format);
 

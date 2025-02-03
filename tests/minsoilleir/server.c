@@ -479,7 +479,7 @@ static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 	if(surface->texture) {
 		output->renderer->draw_texture(output->renderer, surface->texture, 
 				surface->position.x - output->x, surface->position.y - output->y,
-				surface->position.x, surface->position.y);
+				surface->position.x, surface->position.y, SWL_RENDER_TEXTURE_MODE_NORMAL);
 		if(surface->frame) {
 			wl_callback_send_done(surface->frame, 0);
 			wl_resource_destroy(surface->frame);
@@ -493,7 +493,8 @@ static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 				(surface->position.x - output->x) + subsurface->position.x, 
 				(surface->position.y - output->y) + subsurface->position.y, 
 				(surface->position.x) + subsurface->position.x, 
-				(surface->position.y) + subsurface->position.y);
+				(surface->position.y) + subsurface->position.y,
+				SWL_RENDER_TEXTURE_MODE_NORMAL);
 		}
 		if(subsurface->surface->frame) {
 			wl_callback_send_done(subsurface->surface->frame, 0);
@@ -515,11 +516,11 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
 	if(output->background) {
-		output->renderer->draw_texture(output->renderer, output->background, 0, 0, 0, 0);
+		output->renderer->draw_texture(output->renderer, output->background, 0, 0, 0, 0, SWL_RENDER_TEXTURE_MODE_TILE);
 	}
 
 	wl_list_for_each(client, &soil_output->server->clients, link) {
-		if(client == server->active->client) continue;
+		if(server->active && client == server->active->client) continue;
 		wl_list_for_each(toplevel, &client->surfaces, link) {
 			swl_surface_render(toplevel->swl_xdg_surface->swl_surface, output);
 		}
