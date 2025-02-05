@@ -167,7 +167,9 @@ static void swl_seat_button(struct wl_listener *listener, void *data) {
 			/*Send to all this clients Keyboard Listeners*/
 			if(seat_client->client == wl_resource_get_client(seat->pointer) && seat_client->pointer) {
 				wl_pointer_send_button(seat_client->pointer, wl_display_next_serial(wl_global_get_display(seat->global)), button->time, button->button, button->state);
-				wl_pointer_send_frame(seat_client->pointer);
+				if(wl_resource_get_version(seat_client->pointer) >= WL_POINTER_FRAME_SINCE_VERSION) {
+					wl_pointer_send_frame(seat_client->pointer);
+				}
 			}
 		}
 	}
@@ -198,7 +200,9 @@ static void swl_pointer_motion(struct wl_listener *listener, void *data) {
 			/*Send to all this clients Keyboard Listeners*/
 			if(seat_client->client == wl_resource_get_client(seat->pointer) && seat_client->pointer) {
 				wl_pointer_send_motion(seat_client->pointer, motion->time, seat->pointer_x, seat->pointer_y);
-				wl_pointer_send_frame(seat_client->pointer);
+				if(wl_resource_get_version(seat_client->pointer) >= WL_POINTER_FRAME_SINCE_VERSION) {
+					wl_pointer_send_frame(seat_client->pointer);
+				}
 			}
 		}
 	}
@@ -261,7 +265,7 @@ static void swl_seat_get_pointer(struct wl_client *client, struct wl_resource *s
 		}
 	}
 
-	pointer = wl_resource_create(client, &wl_pointer_interface, SWL_POINTER_VERSION, id);
+	pointer = wl_resource_create(client, &wl_pointer_interface, wl_resource_get_version(seat_resource), id);
 	wl_resource_set_implementation(pointer, &wl_pointer_impl, seat_client, swl_seat_pointer_resource_destroy);
 	if(seat_client) {
 		seat_client->pointer = pointer;

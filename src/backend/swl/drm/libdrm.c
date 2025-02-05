@@ -231,7 +231,7 @@ swl_drm_output_t *swl_drm_output_create(struct gbm_device *gbm, int fd, drmModeR
 	output->connector = conn;
 	swl_output_init_common(fd, conn, &output->common, x, y);
 	output->original_crtc = swl_drm_get_conn_crtc(fd, conn, res);
-
+	/*TODO GET cursor sizes from libdrm*/
 	output->common.renderer = renderer;
 	output->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
 	output->common.buffer[0] = swl_gbm_buffer_create(gbm, width, height, GBM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING, 32);
@@ -487,6 +487,23 @@ swl_renderer_t *swl_drm_backend_get_renderer(swl_display_backend_t *display) {
 	return drm->renderer;
 }
 
+void swl_drm_backend_set_cursor(swl_display_backend_t *display, swl_texture_t *texture, int32_t width, int32_t height, int32_t x, int32_t y) {
+	swl_drm_backend_t *drm = (void*)display;
+	swl_drm_output_t *output;
+
+	if(!texture) {
+		return;
+	}
+
+	wl_list_for_each(output, &drm->outputs, link) {
+		output->common.renderer->attach_target(output->common.renderer, output->cursor_target);
+		output->common.renderer->begin(output->common.renderer);
+		output->common.renderer->clear(output->common.renderer, 0.0f, 0.0f, 0.0f, 1.0f);
+		output->common.renderer->draw_texture(output->common.renderer, texture, 0, 0, 0, 0, SWL_RENDER_TEXTURE_MODE_NORMAL);
+		output->common.renderer->end(output->common.renderer);
+	}
+}
+
 swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_session_backend_t *session, const char *drm_device) {
 	swl_drm_backend_t *drm;
 	drmModeResPtr res;
@@ -525,5 +542,6 @@ swl_display_backend_t *swl_drm_create_backend(struct wl_display *display, swl_se
 	drm->common.SWL_DISPLAY_BACKEND_STOP = swl_drm_backend_stop;
 	drm->common.SWL_DISPLAY_BACKEND_GET_RENDERER = swl_drm_backend_get_renderer;
 	drm->common.SWL_DISPLAY_BACKEND_MOVE_CURSOR = swl_drm_backend_move_cursor;
+	drm->common.SWL_DISPLAY_BACKEND_SET_CURSOR = swl_drm_backend_set_cursor;
 	return (swl_display_backend_t*)drm;
 }

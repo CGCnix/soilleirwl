@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -148,15 +147,22 @@ void soilleir_pointer_motion(void *data, uint32_t mods, int32_t dx, int32_t dy) 
 				if(soilleir->pointer_surface != toplevel) {
 					swl_seat_set_focused_surface_pointer(soilleir->seat, surface->resource,
 							wl_fixed_from_int(soilleir->xpos - surface->position.x), wl_fixed_from_int(soilleir->ypos - surface->position.y));
+				} else {
+					/*Dont set the cursor if this is already the client*/
+					break;
 				}
-
 
 				soilleir->active = toplevel;
 				soilleir->pointer_surface = toplevel;
 				found = 1;
+				if(client->cursor) {
+					swl_surface_t *cursor_surface = wl_resource_get_user_data(client->cursor);
+					soilleir->backend->BACKEND_SET_CURSOR(soilleir->backend, cursor_surface->texture, 24, 24, 0, 0);
+				}
 				break;
 			}
 		}
+
 		if(found) {
 			break;
 		}
@@ -256,8 +262,9 @@ static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 		}	
 	}
 
-	wl_list_for_each(subsurface, &surface->subsurfaces, link) {
+	wl_list_for_each_reverse(subsurface, &surface->subsurfaces, link) {
 		if(subsurface->surface->texture) {
+			if(subsurface->surface->width >= 500) continue;
 			output->renderer->draw_texture(output->renderer, subsurface->surface->texture,
 				(surface->position.x - output->x) + subsurface->position.x, 
 				(surface->position.y - output->y) + subsurface->position.y, 
