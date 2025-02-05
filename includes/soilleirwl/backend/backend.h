@@ -19,7 +19,7 @@ struct swl_backend {
 	int (*BACKEND_SWITCH_VT)(swl_backend_t *backend, int vt);
 	int (*BACKEND_MOVE_CURSOR)(swl_backend_t *backend, int32_t x, int32_t y);
 	void (*BACKEND_ADD_OUTPUT_BIND_LISTENER)(swl_backend_t *backend, struct wl_listener *listener);
-	void (*BACKEND_SET_CURSOR)(swl_backend_t *backend, void *data, uint32_t width, uint32_t height, uint32_t x, uint32_t y);
+	void (*BACKEND_SET_CURSOR)(swl_backend_t *backend, swl_texture_t *data, int32_t width, int32_t height, int32_t x, int32_t y);
 };
 
 swl_backend_t *swl_backend_create_by_env(struct wl_display *display);

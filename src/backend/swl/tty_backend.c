@@ -89,9 +89,16 @@ swl_renderer_t *swl_tty_backend_get_renderer(swl_backend_t *backend) {
 
 int swl_tty_backend_move_cursor(swl_backend_t *backend, int32_t x, int32_t y) {
 	swl_tty_backend_t *tty = swl_backend_to_tty_backend(backend);
-	swl_debug("Test\n");
 	return tty->display->SWL_DISPLAY_BACKEND_MOVE_CURSOR(tty->display, x, y);
 }
+
+
+void swl_tty_backend_set_cursor(swl_backend_t *backend, swl_texture_t *texture, int32_t width, int32_t height, int32_t x, int32_t y) {
+	swl_tty_backend_t *tty = swl_backend_to_tty_backend(backend);
+
+	tty->display->SWL_DISPLAY_BACKEND_SET_CURSOR(tty->display, texture, width, height, x, y);
+}
+
 
 
 swl_backend_t *swl_tty_backend_create(struct wl_display *display) {
@@ -116,6 +123,7 @@ swl_backend_t *swl_tty_backend_create(struct wl_display *display) {
 	tty->backend.BACKEND_ADD_ACTIVATE_LISTENER = swl_tty_backend_add_new_activate_listener;
 	tty->backend.BACKEND_ADD_DISABLE_LISTENER = swl_tty_backend_add_new_disable_listener;
 	tty->backend.BACKEND_SWITCH_VT = swl_tty_backend_switch_vt;
+	tty->backend.BACKEND_SET_CURSOR = swl_tty_backend_set_cursor;
 	tty->backend.BACKEND_MOVE_CURSOR = swl_tty_backend_move_cursor;
 	return (swl_backend_t*)tty;
 }

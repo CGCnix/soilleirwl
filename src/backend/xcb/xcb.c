@@ -30,7 +30,14 @@ typedef struct swl_x11_output {
 	
 	xcb_window_t window;
 	xcb_gcontext_t gc;
-	xcb_pixmap_t cursor;
+
+	swl_renderer_target_t *cursor_target;
+	swl_gbm_buffer_t *cursor_buffer;
+	xcb_render_picture_t cursor_picture;
+	xcb_pixmap_t cursor_pix;
+	
+	xcb_cursor_t cursor;
+
 	xcb_pixmap_t pixmaps[2];
 	struct gbm_device *dev;
 	struct wl_list link;
@@ -163,7 +170,7 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11, const xcb_setup_
 	out->common.mode.height = 480;
 	out->common.renderer = x11->renderer;
 	out->dev = x11->dev;
-	
+
 	xcb_present_select_input(x11->connection, evid, out->window, XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
 
 	out->common.buffer = calloc(2, sizeof(swl_gbm_buffer_t*));
@@ -174,10 +181,31 @@ swl_x11_output_t *swl_x11_output_create(swl_x11_backend_t *x11, const xcb_setup_
 	out->common.targets[0] = out->common.renderer->create_target(out->common.renderer, out->common.buffer[0]);
 	out->common.targets[1] = out->common.renderer->create_target(out->common.renderer, out->common.buffer[1]);
 
+
 	for(uint32_t i = 0; i < 2; i++) {
 		out->pixmaps[i] = xcb_generate_id(x11->connection);
 		xcb_dri3_pixmap_from_buffer(x11->connection, out->pixmaps[i], out->window, out->common.buffer[i]->size, out->common.mode.width, out->common.mode.height, out->common.buffer[i]->pitch, 24, 32, gbm_bo_get_fd(out->common.buffer[i]->bo));
 	}
+
+	out->cursor_pix = xcb_generate_id(x11->connection);
+	out->cursor_buffer = swl_gbm_buffer_create(out->dev, 64, 64, GBM_FORMAT_ARGB8888, GBM_BO_USE_RENDERING, 32);
+	xcb_dri3_pixmap_from_buffer(x11->connection, out->cursor_pix, out->window, out->cursor_buffer->size, 64, 64, out->cursor_buffer->pitch, 32, 32, gbm_bo_get_fd(out->cursor_buffer->bo));
+	out->cursor_target = out->common.renderer->create_target(out->common.renderer, out->cursor_buffer);
+
+	out->common.renderer->attach_target(out->common.renderer, out->cursor_target);
+	out->common.renderer->begin(out->common.renderer);
+	out->common.renderer->clear(out->common.renderer, 1.0f, .0f, .0f, 1.0f);
+	out->common.renderer->end(out->common.renderer);
+
+	out->cursor = xcb_generate_id(x11->connection);
+	out->cursor_picture = xcb_generate_id(x11->connection);
+
+	xcb_render_create_picture(x11->connection, out->cursor_picture, out->cursor_pix, x11->argb32, 0, 0);
+	xcb_render_create_cursor(x11->connection, out->cursor, out->cursor_picture, 0, 0);
+
+	mask = XCB_CW_CURSOR;
+	values[0] = out->cursor;
+	xcb_change_window_attributes(x11->connection, out->window, mask, values);
 
 	wl_signal_init(&out->common.destroy);
 	wl_signal_init(&out->common.frame);
@@ -368,6 +396,35 @@ int swl_x11_backend_move_cursor(swl_backend_t *backend, int32_t x, int32_t y) {
 	return 0;
 }
 
+void swl_x11_backend_set_cursor(swl_backend_t *backend, swl_texture_t *texture, int32_t width, int32_t height, int32_t x, int32_t y) {
+	swl_x11_backend_t *x11 = (void*)backend;
+	swl_x11_output_t *output;
+	uint32_t mask;
+	uint32_t values[1];
+	xcb_pixmap_t pixmap = xcb_generate_id(x11->connection);
+	xcb_render_picture_t picture = xcb_generate_id(x11->connection);
+
+	wl_list_for_each(output, &x11->outputs, link) {
+		xcb_render_free_picture(x11->connection, output->cursor_picture);
+		xcb_free_cursor(x11->connection, output->cursor);
+
+		output->common.renderer->attach_target(output->common.renderer, output->cursor_target);
+		output->common.renderer->begin(output->common.renderer);
+		output->common.renderer->clear(output->common.renderer, 0.0f, 0.0f, 0.0f, 1.0f);
+		output->common.renderer->draw_texture(output->common.renderer, texture, 0, 0, 0, 0, SWL_RENDER_TEXTURE_MODE_NORMAL);
+		output->common.renderer->end(output->common.renderer);
+
+		output->cursor = xcb_generate_id(x11->connection);
+		output->cursor_picture = xcb_generate_id(x11->connection);
+		xcb_render_create_picture(x11->connection, output->cursor_picture, output->cursor_pix, x11->argb32, 0, 0);
+		xcb_render_create_cursor(x11->connection, output->cursor, output->cursor_picture, 0, 0);
+
+		mask = XCB_CW_CURSOR;
+		values[0] = output->cursor;
+		xcb_change_window_attributes(x11->connection, output->window, mask, values);
+	}
+}
+
 int swl_x11_backend_start(swl_backend_t *backend) {
 	swl_x11_backend_t *x11 = (swl_x11_backend_t*)backend;
 	swl_x11_output_t *out;
@@ -388,7 +445,7 @@ int swl_x11_backend_start(swl_backend_t *backend) {
 			0,
 			0,
 			0,
-			XCB_PRESENT_OPTION_NONE,
+			XCB_PRESENT_OPTION_COPY,
 			0,
 			0,
 			0,
@@ -480,6 +537,12 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 		return NULL;
 	}
 
+	ext = xcb_get_extension_data(x11->connection, &xcb_render_id);
+	if(!ext | !ext->present) {
+		swl_error("X11 Render Extension not supported\n");
+		return NULL;
+	}
+
 	setup = xcb_get_setup(x11->connection);
 
 	iter = xcb_setup_roots_iterator(setup);
@@ -489,6 +552,17 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 			break;
 		}
 	}
+
+	xcb_generic_error_t *err;
+	xcb_render_query_pict_formats_cookie_t render_cookie = xcb_render_query_pict_formats(x11->connection);
+	xcb_render_query_pict_formats_reply_t  *picts = xcb_render_query_pict_formats_reply(x11->connection, render_cookie, &err);
+	if(err) {
+		swl_error("XCB Render Error\n");
+		return NULL;
+	}
+
+	x11->argb32 = xcb_render_util_find_standard_format(picts, XCB_PICT_STANDARD_ARGB_32)->id;
+	free(picts);
 
 	wl_signal_init(&x11->input.key);
 	wl_signal_init(&x11->input.button);
@@ -501,12 +575,12 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 			swl_x11_event, x11);
 
 	wl_list_init(&x11->outputs);
-	xcb_generic_error_t *err;
 	xcb_dri3_open_cookie_t cookie = xcb_dri3_open(x11->connection, x11->screen->root, 0);
 	xcb_dri3_open_reply_t *reply = xcb_dri3_open_reply(x11->connection, cookie, &err);
 	int *fds = xcb_dri3_open_reply_fds(x11->connection, reply);
 	if(err) {
-		swl_debug("X11 dri3 err\n");
+		swl_error("X11 dri3 err\n");
+		return NULL;
 	}
 
 	swl_debug("X11 FD %d\n", fds[0]);
@@ -539,6 +613,7 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 	x11->backend.BACKEND_START = swl_x11_backend_start;
 	x11->backend.BACKEND_GET_RENDERER = swl_x11_backend_get_renderer;
 	x11->backend.BACKEND_SWITCH_VT = swl_x11_backend_switch_vt;
+	x11->backend.BACKEND_SET_CURSOR = swl_x11_backend_set_cursor;
 	x11->backend.BACKEND_MOVE_CURSOR = swl_x11_backend_move_cursor;
 	return (swl_backend_t*)x11;
 }

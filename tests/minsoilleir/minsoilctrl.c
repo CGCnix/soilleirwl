@@ -16,7 +16,6 @@
 #include <sys/shm.h>
 #include <sys/mman.h>
 
-
 enum {
 	SERVER_CHG_KEYBMAP,
 	SERVER_SET_BACKGRN,
@@ -107,7 +106,7 @@ void *readpng_get_image(FILE *infile, uint32_t *width, uint32_t *height,
 	for(int y = 0; y < *height; y++) {
 		row_pointers[y] = (png_byte*)malloc(*stride);
 	}
-
+	
 	png_read_image(png_ptr, row_pointers);
 	png_read_end(png_ptr, info_ptr);
 	return row_pointers;
@@ -240,7 +239,7 @@ void soilleir_ipc_set_bg(const char *swl_ipc, const char *image_name, bool inver
 
 	switch(format) {
 		case PNG_COLOR_TYPE_RGB:
-			format = DRM_FORMAT_RGB888;
+			format = DRM_FORMAT_BGR888;
 			break;
 		case PNG_COLOR_TYPE_RGBA:
 			format = DRM_FORMAT_RGBA8888;

@@ -456,7 +456,9 @@ void swl_egl_draw_texture(swl_renderer_t *render, swl_texture_t *texture_in, int
 	int32_t owidth = egl->current->buffer->width;
 	int32_t oheight = egl->current->buffer->height;
 	/*Break out of here this because this shouldn't be visable*/
-	if(-y >= theight || -x >= twidth) return;
+	if(-y >= theight || -x >= twidth) {
+		return;
+	}
 
 	if(mode == SWL_RENDER_TEXTURE_MODE_FILL) {
 		owidth = texture->width;

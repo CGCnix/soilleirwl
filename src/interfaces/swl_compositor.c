@@ -93,11 +93,9 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 	uint32_t width, height, format;	
 	void *data;
 
-	if(surface->role == NULL) {
-		wl_client_post_implementation_error(client, "Commit on unconfigured surface\n");
-		return;
+	if(surface->role) {
+		surface->role->precommit(client, surface, surface->role_resource);
 	}
-	surface->role->precommit(client, surface, surface->role_resource);
 
 	wl_list_for_each(subsurface, &surface->subsurfaces, link) {
 		/*Commit Synced Surfaces*/
@@ -120,8 +118,10 @@ static void swl_surface_handle_commit(struct wl_client *client, struct wl_resour
 	/*Clear Pendinging*/
 	memset(&surface->pending, 0, sizeof(swl_surface_state_t));
 	surface->pending_changes = 0;
-	surface->role->postcommit(client, surface, surface->role_resource);
 	
+	if(surface->role) {
+		surface->role->postcommit(client, surface, surface->role_resource);
+	}
 	wl_signal_emit(&surface->commit, surface);	
 
 	surface->buffer.buffer = NULL;
@@ -266,6 +266,9 @@ static void swl_subsurface_destroy(struct wl_client *client, struct wl_resource 
 
 static void swl_subsurface_place_above(struct wl_client *client, struct wl_resource *subsurface,
 		struct wl_resource *sibling) {
+	/*TODO:Double Buffer*/
+	/*TODO this can be the parent surface which for place below may be an issue rn*/
+
 
 }
 
@@ -301,7 +304,12 @@ static const struct wl_subsurface_interface swl_subsurface_impl = {
 };
 
 static void swl_subsurface_precommit(struct wl_client *client, swl_surface_t *surface, struct wl_resource *resource) {
-		
+	struct wl_shm_buffer *buffer;
+	if(surface->pending_changes & SWL_SURFACE_PENDING_BUFFER && surface->pending.buffer.buffer) {
+		buffer = wl_shm_buffer_get(surface->pending.buffer.buffer);
+		surface->width = wl_shm_buffer_get_width(buffer);
+		surface->height = wl_shm_buffer_get_height(buffer);
+	}
 }
 
 static void swl_subsurface_postcommit(struct wl_client *client, swl_surface_t *surface, struct wl_resource *resource) {
@@ -332,7 +340,6 @@ static void swl_subcompositor_get_subsurface(struct wl_client *client,
 	wl_list_insert(&subsurface->parent->subsurfaces, &subsurface->link);
 	subsurface->resource = wl_resource_create(client, &wl_subsurface_interface, SWL_SUBSURFACE_VERSION, id);
 	wl_resource_set_implementation(subsurface->resource, &swl_subsurface_impl, subsurface, swl_subsurface_resource_destroy);
-	
 	subsurface->surface->role = &swl_subsurface_role;
 	subsurface->surface->role_resource = subsurface->resource;
 }
