@@ -3,7 +3,7 @@
 include config.mk
 
 TARGET=libsoilleirwl.so
-COBJS=src/egl.o src/backend/swl/input/libinput.o src/backend/swl/drm/libdrm.o src/backend/swl/hotplug/libudev.o src/backend/swl/sessions/libseat.o src/xdg-shell-server.o src/logger.o src/interfaces/swl_compositor.o src/interfaces/swl_data_dev_man.o src/backend/xcb/xcb.o src/backend/backend.o src/backend/swl/tty_backend.o src/allocator/gbm.o src/interfaces/swl_seat.o src/wl_viewporter.o
+COBJS=src/egl.o src/backend/swl/input/libinput.o src/backend/swl/drm/libdrm.o src/backend/swl/hotplug/libudev.o src/backend/swl/sessions/libseat.o src/xdg-shell-server.o src/logger.o src/interfaces/swl_compositor.o src/interfaces/swl_data_dev_man.o src/backend/xcb/xcb.o src/backend/backend.o src/backend/swl/tty_backend.o src/allocator/gbm.o src/interfaces/swl_seat.o src/wl_viewporter.o src/interfaces/swl_xdg_shell.o
 CLIBSFLAGS=`pkg-config --cflags gbm xkbcommon wayland-server libseat libudev libinput libdrm glesv2 egl xcb xcb-dri3 xcb-present`
 CLIBS=`pkg-config --libs gbm xkbcommon wayland-server libseat libudev libinput libdrm egl glesv2 xcb xcb-dri3 xcb-present`
 

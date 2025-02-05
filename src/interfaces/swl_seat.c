@@ -130,7 +130,7 @@ void swl_seat_key_press(struct wl_listener *listener, void *data) {
 	}
 }
 
-static void wl_pointer_release(struct wl_client *client, struct wl_resource *resource) {
+static void swl_pointer_release(struct wl_client *client, struct wl_resource *resource) {
 	wl_resource_destroy(resource);
 }
 
@@ -205,7 +205,7 @@ static void swl_pointer_motion(struct wl_listener *listener, void *data) {
 }
 
 static const struct wl_pointer_interface wl_pointer_impl = {
-	.release = wl_pointer_release,
+	.release = swl_pointer_release,
 	.set_cursor = wl_pointer_set_cur,
 };
 
@@ -217,6 +217,7 @@ static void swl_seat_get_keyboard(struct wl_client *client, struct wl_resource *
 	char *keymap;
 	struct wl_array keys;
 	int fd;
+	int version = wl_resource_get_version(seat_resource);
 
 	wl_array_init(&keys);
 
@@ -226,7 +227,7 @@ static void swl_seat_get_keyboard(struct wl_client *client, struct wl_resource *
 		}
 	}
 
-	keyboard = wl_resource_create(client, &wl_keyboard_interface, SWL_KEYBOARD_VERSION, id);
+	keyboard = wl_resource_create(client, &wl_keyboard_interface, version, id);
 	wl_resource_set_implementation(keyboard, &swl_keyboard_impl, seat_client, swl_seat_keyboard_resource_destroy);
 
 	keymap = xkb_keymap_get_as_string(seat->keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
@@ -235,9 +236,12 @@ static void swl_seat_get_keyboard(struct wl_client *client, struct wl_resource *
 	ftruncate(fd, strlen(keymap));
 	write(fd, keymap, strlen(keymap));
 	wl_keyboard_send_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, strlen(keymap));
-	wl_keyboard_send_repeat_info(keyboard, 25, 600);
-	unlink(tmp);
 
+	if(version >= WL_KEYBOARD_REPEAT_INFO_SINCE_VERSION) {
+		wl_keyboard_send_repeat_info(keyboard, 25, 600);
+	}
+
+	unlink(tmp);
 	close(fd);
 	free(keymap);
 
@@ -518,7 +522,6 @@ void swl_seat_destroy(swl_seat_t *seat) {
 	xkb_context_unref(seat->xkb);
 
 	wl_global_destroy(seat->global);
-
 	free(seat);
 }
 
@@ -533,7 +536,6 @@ swl_seat_t *swl_seat_create(struct wl_display *display, swl_backend_t *backend, 
 	names.options = NULL;
 	names.variant = NULL;
 	names.layout = kmap;
-
 
 	seat->global = wl_global_create(display, &wl_seat_interface, SWL_SEAT_VERSION, seat, swl_seat_bind);
 	seat->name = (char *)&seat[1];

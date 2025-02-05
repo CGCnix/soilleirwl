@@ -75,5 +75,5 @@ static void swl_data_device_man_bind(struct wl_client *client, void *data,
 }
 
 void swl_create_data_dev_man(struct wl_display *display) {
-	wl_global_create(display, &wl_data_device_manager_interface, 3, NULL, swl_data_device_man_bind);	
+	wl_global_create(display, &wl_data_device_manager_interface, 3, NULL, swl_data_device_man_bind);
 }

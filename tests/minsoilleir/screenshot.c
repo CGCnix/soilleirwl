@@ -188,7 +188,7 @@ static struct wl_registry_listener reg_listen = {
 	.global_remove = wl_registry_global_rm,
 };
 
-int writeImage(char* filename, int width, int height, uint8_t *buffer, char *title)
+int write_image(char* filename, int width, int height, uint8_t *buffer, char *title)
 {
    int code = 0;
    FILE *fp = NULL;
@@ -325,8 +325,7 @@ int main(int argc, char **argv) {
 
 	if(dump) {
 		return 1;
-	} 
-	
+	}
 	printf("monitor_name %s\n", monitor_name);
 
 	wl_list_for_each(output, &client->outputs, link) {
@@ -334,7 +333,7 @@ int main(int argc, char **argv) {
 		if(strcmp(output->name, monitor_name) == 0) {
 			get_frame(client, output);
 			wl_display_roundtrip(client->display);
-			writeImage(filename, output->width, output->height, output->data, "swl_screenshot");
+			write_image(filename, output->width, output->height, output->data, "swl_screenshot");
 		}
 	}
 
