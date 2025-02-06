@@ -246,8 +246,8 @@ void soilleir_kill_client(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uin
 	/*No client*/
 	if(!server->active) return;
 	xdg_toplevel_send_close(server->active->swl_toplevel->resource);
-
 }
+
 static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 	swl_subsurface_t *subsurface;
 	if(surface->texture) {
@@ -591,16 +591,16 @@ int main(int argc, char **argv) {
 	soilleir.subcompositor = swl_subcompositor_create(soilleir.display);
 
 	soilleir.seat = swl_seat_create(soilleir.display, soilleir.backend, "seat0", kmap);
-	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_Escape, soilleir_quit, soilleir.display);
-	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_Return, soilleir_spawn, "foot");
-	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_Tab, soilleir_next_client, &soilleir);
+	swl_seat_add_binding(soilleir.seat, SWL_MOD_ALT, XKB_KEY_Escape, soilleir_quit, soilleir.display);
+	swl_seat_add_binding(soilleir.seat, SWL_MOD_ALT, XKB_KEY_Return, soilleir_spawn, "foot");
+	swl_seat_add_binding(soilleir.seat, SWL_MOD_ALT, XKB_KEY_Tab, soilleir_next_client, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_1, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_2, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_3, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_4, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_5, soilleir_switch_session, &soilleir);
 	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_XF86Switch_VT_6, soilleir_switch_session, &soilleir);
-	swl_seat_add_binding(soilleir.seat, SWL_MOD_CTRL | SWL_MOD_ALT, XKB_KEY_q, soilleir_kill_client, &soilleir);
+	swl_seat_add_binding(soilleir.seat, SWL_MOD_ALT, XKB_KEY_q, soilleir_kill_client, &soilleir);
 
 	swl_seat_add_pointer_callback(soilleir.seat, soilleir_pointer_motion, &soilleir);
 	swl_seat_add_set_cursor_callback(soilleir.seat, soilleir_set_cursor_callback, &soilleir);

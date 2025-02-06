@@ -1,4 +1,5 @@
 # SWL (Soilleir WL):
+A Compositor Library written from Scratch
 
 ## Building:
 To build please install all the needed deps and then run `make` to build the code
@@ -8,13 +9,18 @@ To build please install all the needed deps and then run `make` to build the cod
 This software is in early development and not really supposed to be run currently. However it technically can be run by building using `make` file. And setting the `SWL_DRM_DEVICE` environment variable to be the file drm card if it's not set it defaults `/dev/dri/card0`.
 
 Keybinds:
-All keybindings are combined with the modifiers `CTRL+ALT`
+All keybindings are combined with the modifier `CTRL`
 
 - Enter/Return (Spawn a havoc terminal)
 - F[1-12] (Swap to TTY #)
 - Escape (Exit)
 - Tab (Swap active client)
-- Arrow keys move client 10px that direction (NOTE: this code assumes 1920x1080 size)
+- q (Quit the currently focused client)
+
+Mouse:
+- Resize Client Mouse + Alt
+- Move Client Mouse + Ctrl
+
 
 ### Problems in the current build
 - Only one GPU is supported
@@ -36,10 +42,14 @@ Title: <Issue Description> On <Hardware>.
 - libinput
 - libudev/libudev-zero(Or just any compat lib)
 - egl & gles
+- libxcb
+- libxcb-dri3
+- libxcb-render
+- libxcb-renderutil
+- libxcb-present
 
 ### Optional:
 
 
 ## Debugging:
-If you are testing and are running into errors you can debug with gdb or lldb over an ssh connection or can check the log file at `/tmp/soilleir` for the test server.
-
+If you wish to get a debug log pass `--log-file FileName` to the ./minisoilleir Test program
