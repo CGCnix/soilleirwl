@@ -29,7 +29,7 @@
 #include <soilleirwl/interfaces/swl_data_dev_man.h>
 
 #include <private/xdg-shell-server.h>
-#include <private/swl-screenshot-server.h>
+#include "swl-screenshot-server.h"
 
 #include "./ipc.h"
 #include "./minsoilleir.h"
@@ -98,8 +98,7 @@ void zswl_screenshot_manager_copy(struct wl_client *client,
 
 	swl_output->renderer->attach_target(swl_output->renderer, swl_output->targets[swl_output->front_buffer]);
 	swl_output->renderer->begin(swl_output->renderer);
-	swl_output->renderer->copy_from(swl_output->renderer, data, wl_shm_buffer_get_height(shm_buffer), wl_shm_buffer_get_width(shm_buffer),
-			x, y, wl_shm_buffer_get_format(shm_buffer));
+	swl_output->renderer->copy_from(swl_output->renderer, data, wl_shm_buffer_get_height(shm_buffer), wl_shm_buffer_get_width(shm_buffer), x, y, wl_shm_buffer_get_format(shm_buffer));
 	swl_output->renderer->end(swl_output->renderer);
 }
 

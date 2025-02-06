@@ -1,5 +1,6 @@
 #include "./swl-screenshot-client.h"
 
+#include <asm-generic/errno-base.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -32,50 +33,40 @@ typedef struct test_client {
 	struct zswl_screenshot_manager *manager;
 } test_client_t;
 
-static void
-randname(char *buf)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    long r = ts.tv_nsec;
-    for (int i = 0; i < 6; ++i) {
-        buf[i] = 'A'+(r&15)+(r&16)*2;
-        r >>= 5;
-    }
-}
+static int shm_file_create(size_t size) {
+	char template[] = "/zswl_screenshot-XXXXXX";
+	uint32_t i;
+	uint32_t attempts = 25;
+	int fd = -1;
+	int ret;
 
-static int
-create_shm_file(void)
-{
-    int retries = 100;
-    do {
-        char name[] = "/wl_shm-XXXXXX";
-        randname(name + sizeof(name) - 7);
-        --retries;
-        int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0) {
-            shm_unlink(name);
-            return fd;
-        }
-    } while (retries > 0 && errno == EEXIST);
-    return -1;
-}
+	srand(time(NULL));
+	for(i = strlen(template)-6; i < strlen(template); ++i) {
+		template[i] = '0' + rand() % 10;
+	}
 
-static int
-allocate_shm_file(size_t size)
-{
-    int fd = create_shm_file();
-    if (fd < 0)
-        return -1;
-    int ret;
-    do {
-        ret = ftruncate(fd, size);
-    } while (ret < 0 && errno == EINTR);
-    if (ret < 0) {
-        close(fd);
-        return -1;
-    }
-    return fd;
+	printf("Creating SHM File: %s\n", template);
+	while(attempts && fd < 0) {
+		attempts--;
+		fd = shm_open(template, O_RDWR | O_CREAT | O_EXCL, 0600);
+		if(fd < 0 && errno != EEXIST) {
+			printf("Failed to create shm_file: %s\n", strerror(errno));
+			break;
+		}
+	}
+
+	if(fd >= 0) {
+		shm_unlink(template);
+	}
+
+	while((ret = ftruncate(fd, size)) < 0 && errno == EINTR);
+
+	if(ret < 0) {
+		close(fd);
+		fd = -1;
+	}
+
+	return fd;
 }
 
 static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer) {
@@ -98,7 +89,7 @@ static struct wl_buffer *get_frame(test_client_t *client, test_output_t *output)
 	stride = width * 4;
   size = stride * height;
 
-	int fd = allocate_shm_file(size);
+	int fd = shm_file_create(size);
 	if (fd == -1) {
 			return NULL;
 	}
@@ -178,7 +169,7 @@ void wl_registry_global(void *data, struct wl_registry *registry, uint32_t name,
 
 }
 
-void wl_registry_global_rm(void *data, struct wl_registry *registry, uint32_t name) { 
+void wl_registry_global_rm(void *data, struct wl_registry *registry, uint32_t name) {
 	struct wl_output *output;
 
 }
@@ -188,87 +179,84 @@ static struct wl_registry_listener reg_listen = {
 	.global_remove = wl_registry_global_rm,
 };
 
-int write_image(char* filename, int width, int height, uint8_t *buffer, char *title)
-{
-   int code = 0;
-   FILE *fp = NULL;
-   png_structp png_ptr = NULL;
-   png_infop info_ptr = NULL;
-   png_bytep row = NULL;
+int write_image(char* filename, int width, int height, uint8_t *buffer, char *title) {
+	int code = 0;
+	FILE *fp = NULL;
+	png_structp png_ptr = NULL;
+	png_infop info_ptr = NULL;
+	png_bytep row = NULL;
+	int x, y;
 
-		// Open file for writing (binary mode)
-   fp = fopen(filename, "wb");
-   if (fp == NULL) {
-      fprintf(stderr, "Could not open file %s for writing\n", filename);
-      code = 1;
-      goto finalise;
-   }
+	// Open file for writing (binary mode)
+	fp = fopen(filename, "wb");
+	if (fp == NULL) {
+		fprintf(stderr, "Could not open file %s for writing\n", filename);
+		code = 1;
+		goto finalise;
+	}
 
-	    // Initialize write structure
-   png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-   if (png_ptr == NULL) {
-      fprintf(stderr, "Could not allocate write struct\n");
-      code = 1;
-      goto finalise;
-   }
+	// Initialize write structure
+	png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+	if (png_ptr == NULL) {
+		fprintf(stderr, "Could not allocate write struct\n");
+		code = 1;
+		goto finalise;
+	}
 
-   // Initialize info structure
-   info_ptr = png_create_info_struct(png_ptr);
-   if (info_ptr == NULL) {
-      fprintf(stderr, "Could not allocate info struct\n");
-      code = 1;
-      goto finalise;
-   }
+	// Initialize info structure
+	info_ptr = png_create_info_struct(png_ptr);
+	if (info_ptr == NULL) {
+		fprintf(stderr, "Could not allocate info struct\n");
+		code = 1;
+		goto finalise;
+	}
 
-	    // Setup Exception handling
-   if (setjmp(png_jmpbuf(png_ptr))) {
-      fprintf(stderr, "Error during png creation\n");
-      code = 1;
-      goto finalise;
-   }
+	// Setup Exception handling
+	if (setjmp(png_jmpbuf(png_ptr))) {
+		fprintf(stderr, "Error during png creation\n");
+		code = 1;
+		goto finalise;
+	}
 
-	    png_init_io(png_ptr, fp);
+	png_init_io(png_ptr, fp);
 
-   // Write header (8 bit colour depth)
-   png_set_IHDR(png_ptr, info_ptr, width, height,
-         8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
-         PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+ // Write header (8 bit colour depth)
+ png_set_IHDR(png_ptr, info_ptr, width, height,
+			 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+			 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
 
-   // Set title
-   if (title != NULL) {
-      png_text title_text;
-      title_text.compression = PNG_TEXT_COMPRESSION_NONE;
-      title_text.key = "Title";
-      title_text.text = title;
-      png_set_text(png_ptr, info_ptr, &title_text, 1);
-   }
+	// Set title
+	if (title != NULL) {
+		png_text title_text;
+		title_text.compression = PNG_TEXT_COMPRESSION_NONE;
+		title_text.key = "Title";
+		title_text.text = title;
+		png_set_text(png_ptr, info_ptr, &title_text, 1);
+	}
 
-   png_write_info(png_ptr, info_ptr);
+	png_write_info(png_ptr, info_ptr);
 
-	    // Allocate memory for one row (3 bytes per pixel - RGB)
-   row = (png_bytep) malloc(3 * width * sizeof(png_byte));
+	// Allocate memory for one row (3 bytes per pixel - RGB)
+	row = (png_bytep) calloc(3, width * sizeof(png_byte));
 
-   // Write image data
-   int x, y;
-   printf("%lu\n", sizeof(png_byte));
-	 for (y=0 ; y<height ; y++) {
-      for (x=0 ; x<width ; x++) {
-         row[x*3 + 0] = (buffer)[y*(width*4) + (x * 4 + 2)]; // BGR to RGB conversion is handled here
-         row[x*3 + 1] = (buffer)[y*(width*4) + (x * 4 + 1)];
-         row[x*3 + 2] = (buffer)[y*(width*4) + (x * 4 + 0)];
+	// Write image data
+	for (y=0 ; y<height ; y++) {
+		for (x=0 ; x<width ; x++) {
+		 row[x*3 + 0] = (buffer)[y*(width*4) + (x * 4 + 2)]; // BGR to RGB conversion is handled here
+		 row[x*3 + 1] = (buffer)[y*(width*4) + (x * 4 + 1)];
+		 row[x*3 + 2] = (buffer)[y*(width*4) + (x * 4 + 0)];
+		}
+		png_write_row(png_ptr, row);
+	}
 
-			}
-      png_write_row(png_ptr, row);
-   }
+	// End write
+	png_write_end(png_ptr, NULL);
 
-   // End write
-   png_write_end(png_ptr, NULL);
-
-	    finalise:
-   if (fp != NULL) fclose(fp);
-   if (info_ptr != NULL) png_destroy_info_struct(png_ptr, &info_ptr);
-   if (png_ptr != NULL) png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
-   if (row != NULL) free(row);
+	finalise:
+	if (fp != NULL) fclose(fp);
+	if (info_ptr != NULL) png_destroy_info_struct(png_ptr, &info_ptr);
+	if (png_ptr != NULL) png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
+	if (row != NULL) free(row);
 
    return code;
 }
@@ -276,7 +264,6 @@ int write_image(char* filename, int width, int height, uint8_t *buffer, char *ti
 
 int main(int argc, char **argv) {
 	char *filename = "swl_screenshot.png";
-	bool dump = false;
 	const char *monitor_name = NULL;
 	test_client_t *client = calloc(1, sizeof(test_client_t));
 	test_output_t *output;
@@ -290,20 +277,18 @@ int main(int argc, char **argv) {
 			} else if(argv[i][1] == 'o') {
 				filename = argv[i+1];
 				i += 1;
-			} else if(argv[i][1] == 'd') {
-				dump = true;	
 			}
 		} else {
 			printf("Unknown Positional argument at %d value %s\n", i, argv[i]);
 		}
 	}
 
-	if(monitor_name == NULL && !dump) {
+	if(monitor_name == NULL) {
 		printf("Please Supply the monitor to capture\n"
 				"Value should be that of the wl_output_name event\n");
 		return 1;
 	} 
-	if(filename == NULL && !dump) {
+	if(filename == NULL) {
 		printf("Error -o passed but no argument for filename given\n");
 		return 1;
 	}
@@ -316,16 +301,13 @@ int main(int argc, char **argv) {
 	 */
 	wl_display_roundtrip(client->display);
 	
-	if(!client->manager && !dump) {
+	if(!client->manager) {
 		printf("Compositor support for swl_screenshot not found\n");
 		return 1;
 	}
 
 	wl_display_roundtrip(client->display);
 
-	if(dump) {
-		return 1;
-	}
 	printf("monitor_name %s\n", monitor_name);
 
 	wl_list_for_each(output, &client->outputs, link) {
