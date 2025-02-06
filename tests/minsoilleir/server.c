@@ -263,7 +263,6 @@ static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 
 	wl_list_for_each_reverse(subsurface, &surface->subsurfaces, link) {
 		if(subsurface->surface->texture) {
-			if(subsurface->surface->width >= 500) continue;
 			output->renderer->draw_texture(output->renderer, subsurface->surface->texture,
 				(surface->position.x - output->x) + subsurface->position.x, 
 				(surface->position.y - output->y) + subsurface->position.y, 
