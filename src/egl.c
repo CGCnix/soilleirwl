@@ -54,6 +54,12 @@ typedef struct swl_egl_renderer {
 	struct wl_list targets;
 } swl_egl_renderer_t;
 
+typedef struct swl_egl_texture {
+	GLuint id;
+	int32_t width, height;
+} swl_egl_texture_t;
+
+
 int swl_egl_ext_present(const char *extensions, const char *desired) {
 	return strstr(extensions, desired) ? 1 : 0;
 }
@@ -309,7 +315,35 @@ EGLImage swl_egl_import_dma_buf(swl_egl_renderer_t *egl, int dma_buf, EGLint hei
 void swl_egl_copy_from(swl_renderer_t *renderer, void *dst, uint32_t height, uint32_t width, uint32_t x, uint32_t y, uint32_t format) {
 	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)renderer;
 
-	glReadPixels(x, y, width, height, external_format_to_gl(format), GL_UNSIGNED_BYTE, dst);
+	for(uint32_t i = 0; i < height; i++) {
+		glReadPixels(0, i, width, 1, external_format_to_gl(format), GL_UNSIGNED_BYTE, dst + (i * (width * 4)));
+	}
+}
+
+void swl_egl_copy_from_texture(swl_renderer_t *renderer, swl_texture_t *text, void *dst, uint32_t h, uint32_t w, uint32_t x, uint32_t y, uint32_t format) {
+	swl_egl_renderer_t *egl = (swl_egl_renderer_t*)renderer;
+	swl_egl_texture_t *egl_text = (swl_egl_texture_t*)text;
+
+	GLuint fbo;
+
+	glBindTexture(GL_TEXTURE_2D, egl_text->id);
+	glActiveTexture(GL_TEXTURE0);
+
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, egl_text->id, 0);
+	glViewport(0, 0, egl_text->width, egl_text->height);
+
+	/*Account for the fact that buffer may be bigger than framebuffer*/
+	for(uint32_t i = 0; i < egl_text->height; i++) {
+		glReadPixels(0, i, egl_text->width, 1, external_format_to_gl(format), GL_UNSIGNED_BYTE, dst + (i * (w * 4)));
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE0);
+	glDeleteFramebuffers(1, &fbo);
 }
 
 swl_renderer_target_t *swl_egl_create_target(swl_renderer_t *render, swl_gbm_buffer_t *buffer) {
@@ -317,9 +351,8 @@ swl_renderer_target_t *swl_egl_create_target(swl_renderer_t *render, swl_gbm_buf
 	swl_egl_renderer_target_t *target;
 
 	egl = (swl_egl_renderer_t*)render;
-	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
-			egl->ctx);
-	
+	eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->ctx);
+
 	/*Create it's render objects now then*/
 	target = calloc(1, sizeof(swl_egl_renderer_target_t));
 	int dmabuf;
@@ -406,11 +439,6 @@ void swl_egl_end(swl_renderer_t *renderer) {
 	glFlush();
 	glFinish();
 }
-
-typedef struct swl_egl_texture {
-	GLuint id;
-	int32_t width, height;
-} swl_egl_texture_t;
 
 swl_texture_t *swl_egl_create_texture(swl_renderer_t *render, uint32_t width,
 		uint32_t height, uint32_t format, void *data) {
@@ -587,6 +615,7 @@ swl_renderer_t *swl_egl_renderer_create_by_fd(int drm_fd) {
 	egl->common.destroy_target = swl_egl_destroy_target;
 	egl->common.attach_target = swl_egl_attach_target;
 	egl->common.copy_from = swl_egl_copy_from;
+	egl->common.copy_from_texture = swl_egl_copy_from_texture;
 	wl_list_init(&egl->targets);
 
 	/*Get client extension Functions*/
