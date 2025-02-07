@@ -28,10 +28,11 @@ typedef struct {
 	swl_seat_t *seat;
 
 	soilleir_xdg_toplevel_t *active;
-	soilleir_xdg_toplevel_t *pointer_surface;
+	struct wl_resource *pointer_surface;
 
 	struct wl_listener output_listner;
 	struct wl_list clients;
+	struct wl_list surfaces;
 
 	void *bg;
 
@@ -70,10 +71,9 @@ typedef struct {
 } soilleir_output_t;
 
 typedef struct swl_client {
-	struct wl_list surfaces;
 	struct wl_client *client;
 	struct wl_listener destroy;
-	
+
 	struct wl_resource *cursor;
 	struct wl_resource *output;
 	struct wl_list link;

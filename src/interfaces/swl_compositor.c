@@ -1,3 +1,4 @@
+#include "soilleirwl/logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -268,13 +269,40 @@ static void swl_subsurface_place_above(struct wl_client *client, struct wl_resou
 		struct wl_resource *sibling) {
 	/*TODO:Double Buffer*/
 	/*TODO this can be the parent surface which for place below may be an issue rn*/
+	swl_subsurface_t *self, *sibl;
+	swl_surface_t *parent;
 
+	self = wl_resource_get_user_data(subsurface);
+	sibl = wl_resource_get_user_data(sibling);
 
+	parent = self->parent;
+
+	wl_list_remove(&self->link);
+	if(parent == (void*)sibl) { /*Place above parent put at head of list*/
+		wl_list_insert(&parent->subsurfaces, &self->link);
+	} else {
+		/*insert before sibling*/
+		wl_list_insert(&sibl->link, &self->link);
+	}
 }
 
 static void swl_subsurface_place_below(struct wl_client *client, struct wl_resource *subsurface,
 		struct wl_resource *sibling) {
+	swl_subsurface_t *self, *sibl;
+	swl_surface_t *parent;
 
+	self = wl_resource_get_user_data(subsurface);
+	sibl = wl_resource_get_user_data(sibling);
+
+	parent = self->parent;
+	/*Sibling code be the parent ignore these for now as we only support being above the parent currently*/
+	if(parent == (void*)sibl) {
+		swl_warn("Ignore Place Below Parent Request\n");
+		return;
+	}
+
+	/*Place after this node*/
+	wl_list_insert(sibl->link.next, &self->link);
 }
 
 static void swl_subsurface_set_pos(struct wl_client *client, struct wl_resource *resource,
