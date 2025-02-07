@@ -1,6 +1,7 @@
+.POSIX:
+.SUFFIXES: .c .o
 CC=clang
 CFLAGS=-O0 -g -I /usr/include/libdrm/ -L ../../ -I ../../includes/
-.SUFFIXES: .c .o
 COBJS=server.o ipc.o
 
 WAYLAND_SCANNER=`pkg-config wayland-scanner --variable=wayland_scanner`
@@ -24,7 +25,7 @@ xdg-shell-server.h:
 xdg-shell-server.c:
 	$(WAYLAND_SCANNER) private-code $(WAYLAND_DIR)/stable/xdg-shell/xdg-shell.xml $@
 
-minsoilleir: $(COBJS)  swl-screenshot-server.h swl-screenshot.c xdg-shell-server.h xdg-shell-server.c
+minsoilleir: swl-screenshot-server.h swl-screenshot.c xdg-shell-server.h xdg-shell-server.c $(COBJS)
 	$(CC) $(CFLAGS) -o $@ $(COBJS) swl-screenshot.c xdg-shell-server.c -lsoilleirwl -lwayland-server
 
 minsoilctrl: minsoilctrl.c

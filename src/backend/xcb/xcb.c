@@ -256,6 +256,7 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 					swl_warn("Xcb failed to get output from window: %d\n", present->window);
 					break;
 				}
+
 				wl_signal_emit(&out->common.frame, out);
 				xcb_present_pixmap(x11->connection,
 					out->window,
@@ -274,8 +275,7 @@ int swl_x11_event(int fd, uint32_t mask, void *data) {
 					0,
 					0, NULL);
 			}
-
-				break;
+			break;
 			}
 			case XCB_KEY_PRESS: {
 				xcb_key_press_event_t *kp = (void*)ev;
@@ -594,7 +594,7 @@ swl_backend_t *swl_x11_backend_create(struct wl_display *display) {
 	if(getenv("SWL_X11_MONITORS")) {
 		monitors = getenv("SWL_X11_MONITORS");
 	}
-	/*DOn't modify string literal or env string*/
+	/*Don't modify string literal or env string*/
 	char *dupped = strdup(monitors);
 	char *token = strtok(dupped, ";");
 	while(token) {

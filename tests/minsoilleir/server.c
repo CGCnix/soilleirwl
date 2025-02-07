@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -83,7 +84,6 @@ swl_client_t *swl_get_client_or_create(struct wl_client *client, struct wl_list 
 	output->destroy.notify = swl_client_destroy;
 	wl_client_add_destroy_late_listener(output->client, &output->destroy);
 	wl_list_insert(list, &output->link);
-	wl_list_init(&output->surfaces);
 	return output;
 }
 
@@ -122,8 +122,9 @@ void soilleir_quit(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uint32_t s
 void soilleir_pointer_motion(void *data, uint32_t mods, int32_t dx, int32_t dy) {
 	soilleir_server_t *soilleir = data;
 	swl_client_t *client;
-	soilleir_xdg_toplevel_t *toplevel;
+	soilleir_xdg_toplevel_t *toplevel, *tmp;
 	swl_xdg_surface_t *xdg_surface;
+	swl_subsurface_t *subsurface;
 	swl_surface_t *surface;
 	struct wl_array states;
 	wl_array_init(&states);
@@ -131,48 +132,65 @@ void soilleir_pointer_motion(void *data, uint32_t mods, int32_t dx, int32_t dy) 
 	soilleir->ypos += dy;
 	int found = 0;
 
-	soilleir->backend->BACKEND_MOVE_CURSOR(soilleir->backend, soilleir->xpos, soilleir->ypos);
-	wl_list_for_each(client, &soilleir->clients, link) {
-		wl_list_for_each(toplevel, &client->surfaces, link) {
-			xdg_surface = wl_resource_get_user_data(toplevel->swl_toplevel->xdg_surface);
-			surface = wl_resource_get_user_data(xdg_surface->wl_surface_res);
-			if(soilleir->xpos >= surface->position.x && soilleir->xpos <= surface->position.x + surface->width &&
-				 soilleir->ypos >= surface->position.y && soilleir->ypos <= surface->position.y + surface->height) {
-				
-				if(soilleir->active != toplevel) {
-					swl_seat_set_focused_surface_keyboard(soilleir->seat, surface->resource);
-				}
-				
-				if(soilleir->pointer_surface != toplevel) {
-					swl_seat_set_focused_surface_pointer(soilleir->seat, surface->resource,
-							wl_fixed_from_int(soilleir->xpos - surface->position.x), wl_fixed_from_int(soilleir->ypos - surface->position.y));
-				} else {
-					/*Dont set the cursor if this is already the client*/
-					break;
-				}
 
-				soilleir->active = toplevel;
-				soilleir->pointer_surface = toplevel;
-				found = 1;
-				if(client->cursor) {
-					swl_surface_t *cursor_surface = wl_resource_get_user_data(client->cursor);
-					soilleir->backend->BACKEND_SET_CURSOR(soilleir->backend, cursor_surface->texture, 24, 24, 0, 0);
-				}
+	soilleir->backend->BACKEND_MOVE_CURSOR(soilleir->backend, soilleir->xpos, soilleir->ypos);
+	wl_list_for_each_safe(toplevel, tmp, &soilleir->surfaces, link) {
+		xdg_surface = wl_resource_get_user_data(toplevel->swl_toplevel->xdg_surface);
+		surface = wl_resource_get_user_data(xdg_surface->wl_surface_res);
+		if(soilleir->xpos >= surface->position.x && soilleir->xpos <= surface->position.x + surface->width &&
+			 soilleir->ypos >= surface->position.y && soilleir->ypos <= surface->position.y + surface->height) {
+			found = 1;
+			if(soilleir->active != toplevel) {
+				swl_seat_set_focused_surface_keyboard(soilleir->seat, surface->resource);
+			}
+			
+			if(soilleir->pointer_surface != surface->resource) {
+				swl_seat_set_focused_surface_pointer(soilleir->seat, surface->resource,
+						wl_fixed_from_int(soilleir->xpos - surface->position.x), wl_fixed_from_int(soilleir->ypos - surface->position.y));
+			} else {
+				/*Dont set the cursor if this is already the client*/
 				break;
 			}
-		}
+			wl_list_remove(&toplevel->link);
+			/*Make us the new head and thus the last node to be rendered*/
+			wl_list_insert(&soilleir->surfaces, &toplevel->link);
 
-		if(found) {
+			soilleir->active = toplevel;
+			soilleir->pointer_surface = surface->resource;
 			break;
 		}
+		wl_list_for_each(subsurface, &surface->subsurfaces, link) {
+			if(soilleir->xpos >= surface->position.x + subsurface->position.x &&
+					soilleir->xpos <= surface->position.x + subsurface->position.x + subsurface->surface->width &&
+					soilleir->ypos >= surface->position.y + subsurface->position.y &&
+					soilleir->ypos <= surface->position.y + subsurface->position.y + subsurface->surface->height) {
+				if(soilleir->pointer_surface == subsurface->surface->resource) break;
+				/*todo keyboard*/
+				found = 1;
+				swl_seat_set_focused_surface_pointer(soilleir->seat, subsurface->surface->resource,
+						wl_fixed_from_int(soilleir->xpos - (surface->position.x + subsurface->position.x)), wl_fixed_from_int(soilleir->ypos - (surface->position.y + subsurface->position.y)));
+				soilleir->pointer_surface = subsurface->surface->resource;
+			}
+		}
 	}
+
+	/*Find the client*/
+	wl_list_for_each(client, &soilleir->clients, link) {
+		if(toplevel->client != client->client) continue;
+		if(client->cursor) {
+			swl_surface_t *cursor_surface = wl_resource_get_user_data(client->cursor);
+			/*the types here don't actually have an effect*/
+			soilleir->backend->BACKEND_SET_CURSOR(soilleir->backend, cursor_surface->texture, 24, 24, 0, 0);
+		}
+	}
+
 
 	if(!found) {
 		soilleir->pointer_surface = NULL;
 		swl_seat_set_focused_surface_pointer(soilleir->seat, NULL, 0, 0);
 	}
 
-	if(soilleir->pointer_surface == NULL) {
+	if(soilleir->pointer_surface == NULL || !soilleir->active) {
 		return;
 	}
 
@@ -207,29 +225,24 @@ void soilleir_next_client(void *data, xkb_mod_mask_t mods, xkb_keysym_t sym, uin
 	swl_client_t *client;
 	swl_xdg_surface_t *xdg_surface;
 	soilleir_xdg_toplevel_t *toplevel;
-
 	bool next = false;
-	wl_list_for_each(client, &soilleir->clients, link) {
-		if(next) {
-			wl_list_for_each(toplevel, &client->surfaces, link) {
-				soilleir->active = toplevel;
-				xdg_surface = wl_resource_get_user_data(soilleir->active->swl_toplevel->xdg_surface);
-				swl_seat_set_focused_surface_keyboard(soilleir->seat, xdg_surface->wl_surface_res);
-				return;
-			}/*This client didn't have a surface keep cycling*/
-		}
-		if(soilleir->active && client->client == soilleir->active->client) {
-			next = true;
-		}
-	}
-	
-	wl_list_for_each(client, &soilleir->clients, link) {
-		wl_list_for_each(toplevel, &client->surfaces, link) {
+
+	wl_list_for_each(toplevel, &soilleir->surfaces, link) {
+		if(soilleir->active == toplevel) next = true;
+		else if(next) {
 			soilleir->active = toplevel;
 			xdg_surface = wl_resource_get_user_data(soilleir->active->swl_toplevel->xdg_surface);
 			swl_seat_set_focused_surface_keyboard(soilleir->seat, xdg_surface->wl_surface_res);
 			return;
 		}
+	}
+
+	/*Grab the first*/
+	wl_list_for_each(toplevel, &soilleir->surfaces, link) {
+		soilleir->active = toplevel;
+		xdg_surface = wl_resource_get_user_data(soilleir->active->swl_toplevel->xdg_surface);
+		swl_seat_set_focused_surface_keyboard(soilleir->seat, xdg_surface->wl_surface_res);
+		return;
 	}
 }
 
@@ -261,6 +274,9 @@ static void swl_surface_render(swl_surface_t *surface, swl_output_t *output) {
 		}	
 	}
 
+	/*Again same deal here last node acts as the lowest z-axis subsurfaces
+	 *and the head acts as the highest
+	 */
 	wl_list_for_each_reverse(subsurface, &surface->subsurfaces, link) {
 		if(subsurface->surface->texture) {
 			output->renderer->draw_texture(output->renderer, subsurface->surface->texture,
@@ -302,22 +318,20 @@ static void soilleir_frame(struct wl_listener *listener, void *data) {
 	soilleir_server_t *server = soil_output->server;
 	output->renderer->attach_target(output->renderer, output->targets[output->front_buffer]);
 	output->renderer->begin(output->renderer);
-	
+
 	output->renderer->clear(output->renderer, 0.2f, 0.2f, 0.2f, 1.0f);
 	if(output->background) {
 		output->renderer->draw_texture(output->renderer, output->background, 0, 0, 0, 0, SWL_RENDER_TEXTURE_MODE_NORMAL);
 	}
 
-	wl_list_for_each(client, &soil_output->server->clients, link) {
-		if(server->active && client->client == server->active->client) continue;
-		wl_list_for_each(toplevel, &client->surfaces, link) {
-			soilleir_toplevel_render(toplevel, output);
-		}
+	/*Last element acts as the lowest Z-axis and is drawn first
+	 *and the first(HEAD) acts as the highest Z-Axis and is renderered on top
+	 *to ensure it is always the top client
+	 */
+	wl_list_for_each_reverse(toplevel, &server->surfaces, link) {
+		soilleir_toplevel_render(toplevel, output);
 	}
 
-	if(server->active) {
-		soilleir_toplevel_render(server->active, output);
-	}
 	output->renderer->end(output->renderer);
 }
 
@@ -361,12 +375,13 @@ static void soilleir_new_output(struct wl_listener *listener, void *data) {
 
 static void soilleir_toplevel_destroy(struct wl_listener *listener, void *data) {
 	soilleir_xdg_toplevel_t *soil_toplevel = wl_container_of(listener, soil_toplevel, destroy);
+	swl_xdg_surface_t *surface = wl_resource_get_user_data(soil_toplevel->swl_toplevel->xdg_surface);
 
 	if(soil_toplevel->soilleir->active == soil_toplevel) {
 		soil_toplevel->soilleir->active = NULL;
 		swl_seat_set_focused_surface_keyboard(soil_toplevel->soilleir->seat, NULL);
 	}
-	if(soil_toplevel->soilleir->pointer_surface == soil_toplevel) {
+	if(soil_toplevel->soilleir->pointer_surface == surface->wl_surface_res) {
 		soil_toplevel->soilleir->pointer_surface = NULL;
 		swl_seat_set_focused_surface_pointer(soil_toplevel->soilleir->seat, NULL, 0, 0);
 	}
@@ -385,7 +400,7 @@ static void soilleir_new_xdg_toplevel(struct wl_listener *listener, void *data) 
 	soil_toplevel->soilleir = surface->soilleir;
 	soil_toplevel->client = wl_resource_get_client(toplevel->resource);
 
-	wl_list_insert(&client->surfaces, &soil_toplevel->link);
+	wl_list_insert(&surface->soilleir->surfaces, &soil_toplevel->link);
 
 	soil_toplevel->destroy.notify = soilleir_toplevel_destroy;
 	wl_signal_add(&soil_toplevel->swl_toplevel->destroy, &soil_toplevel->destroy);
@@ -413,11 +428,9 @@ static void soilleir_new_xdg_popup(struct wl_listener *listener, void *data) {
 	popup->popup = data;
 	popup->destroy.notify = soilleir_xdg_popup_destroy;
 
-	wl_list_for_each(client, &popup->server->clients, link) {
-		wl_list_for_each(toplevel, &client->surfaces, link) {
-			if(toplevel->swl_toplevel->xdg_surface == popup->popup->parent) {
-				wl_list_insert(&toplevel->popups, &popup->link);
-			}
+	wl_list_for_each(toplevel, &surface->soilleir->surfaces, link) {
+		if(toplevel->swl_toplevel->xdg_surface == popup->popup->parent) {
+			wl_list_insert(&toplevel->popups, &popup->link);
 		}
 	}
 
@@ -606,6 +619,7 @@ int main(int argc, char **argv) {
 	swl_seat_add_set_cursor_callback(soilleir.seat, soilleir_set_cursor_callback, &soilleir);
 
 	wl_list_init(&soilleir.clients);
+	wl_list_init(&soilleir.surfaces);
 
 	soilleir.output_listner.notify = soilleir_new_output;
 	soilleir.backend->BACKEND_ADD_NEW_OUTPUT_LISTENER(soilleir.backend, &soilleir.output_listner);
